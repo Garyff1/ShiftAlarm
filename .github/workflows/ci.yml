@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Analyze, test, and debug build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Flutter SDK
+        id: flutter-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .flutter-sdk
+          key: flutter-linux-3.41.8
+
+      - name: Install Flutter 3.41.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -x .flutter-sdk/bin/flutter ]]; then
+            curl --fail --location --retry 3 \
+              --output flutter.tar.xz \
+              https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.41.8-stable.tar.xz
+            tar -xf flutter.tar.xz
+            mv flutter .flutter-sdk
+            rm flutter.tar.xz
+          fi
+          echo "$GITHUB_WORKSPACE/.flutter-sdk/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Dart and Gradle dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.pub-cache
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: deps-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
+
+      - name: Show tool versions
+        run: |
+          flutter --version
+          java -version
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Flutter tests
+        run: flutter test --reporter expanded
+
+      - name: Kotlin and JUnit tests
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Debug APK compile verification
+        run: flutter build apk --debug
+
+      - name: Clarify artifact status
+        run: |
+          echo "CI debug APK is compile verification only."
+          echo "It is not the locally accepted Beta release asset."

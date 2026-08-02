@@ -1,0 +1,116 @@
+name: Bug report
+description: 报告 ShiftAlarm Beta 真机兼容性或功能问题
+title: "[Bug]: "
+labels: [bug, beta-feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢参与 Beta 测试。请勿上传私人 MP3、完整公司班表、姓名/电话/地址、手机 PIN、个人数据库、签名文件、密码或 Token。截图和录屏请先脱敏。
+
+  - type: input
+    id: app_version
+    attributes:
+      label: App 版本
+      placeholder: 例如 1.0.0+4 / v1.0.0-beta.1
+    validations: {required: true}
+
+  - type: dropdown
+    id: apk_source
+    attributes:
+      label: APK 来源
+      options: [GitHub Release, 本地构建, GitHub Actions 编译产物, 其他]
+    validations: {required: true}
+
+  - type: input
+    id: brand
+    attributes: {label: 手机品牌, placeholder: 例如 Xiaomi / Samsung / Pixel}
+    validations: {required: true}
+
+  - type: input
+    id: model
+    attributes: {label: 手机型号}
+    validations: {required: true}
+
+  - type: input
+    id: android_version
+    attributes: {label: Android 版本 / API, placeholder: 例如 Android 15 / API 35}
+    validations: {required: true}
+
+  - type: dropdown
+    id: install_mode
+    attributes:
+      label: 安装方式
+      options: [覆盖安装, 清洁安装, 不确定]
+    validations: {required: true}
+
+  - type: dropdown
+    id: exact_alarm
+    attributes: {label: 精确闹钟权限, options: [已开启, 未开启, 不确定]}
+    validations: {required: true}
+
+  - type: dropdown
+    id: notification
+    attributes: {label: 通知权限, options: [已开启, 未开启, 不确定]}
+    validations: {required: true}
+
+  - type: dropdown
+    id: full_screen
+    attributes: {label: 全屏提醒权限, options: [已开启, 未开启, 不确定/系统无此项]}
+    validations: {required: true}
+
+  - type: dropdown
+    id: battery
+    attributes: {label: 电池优化状态, options: [不受限制, 受限制, 不确定]}
+    validations: {required: true}
+
+  - type: dropdown
+    id: autostart
+    attributes: {label: 厂商自启动状态, options: [已允许, 未允许, 系统无此项, 不确定]}
+    validations: {required: true}
+
+  - type: input
+    id: shift_type
+    attributes: {label: 出现问题的班次类型, placeholder: 例如工作班 / 休息 / 临时调班}
+
+  - type: dropdown
+    id: custom_sound
+    attributes: {label: 是否使用自定义铃声, options: [是, 否, 不确定]}
+    validations: {required: true}
+
+  - type: dropdown
+    id: direct_boot
+    attributes: {label: 是否发生在重启未解锁状态, options: [是, 否, 不确定]}
+    validations: {required: true}
+
+  - type: textarea
+    id: steps
+    attributes: {label: 复现步骤, placeholder: 请按 1、2、3 列出操作}
+    validations: {required: true}
+
+  - type: textarea
+    id: expected
+    attributes: {label: 预期结果}
+    validations: {required: true}
+
+  - type: textarea
+    id: actual
+    attributes: {label: 实际结果}
+    validations: {required: true}
+
+  - type: textarea
+    id: media
+    attributes: {label: 脱敏截图或录屏, description: 可拖入不包含个人信息的附件}
+
+  - type: dropdown
+    id: reproducible
+    attributes: {label: 是否可以稳定复现, options: [每次都能, 偶尔发生, 仅发生一次, 无法再次测试]}
+    validations: {required: true}
+
+  - type: checkboxes
+    id: privacy_confirm
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我确认没有上传私人音频、完整班表、个人信息、PIN、数据库、签名文件或密码。
+          required: true
