@@ -142,3 +142,23 @@ enum AppThemeMode {
     orElse: () => AppThemeMode.system,
   );
 }
+
+enum AppInterfaceMode {
+  standard('standard', '标准模式', '功能完整，适合熟悉智能手机操作的用户。'),
+  largeText('large_text', '大字模式', '文字更大，按钮更宽，更容易看清和点击。'),
+  simple('simple', '简易模式', '页面更简单，常用功能放在最明显的位置。');
+
+  const AppInterfaceMode(this.storageValue, this.label, this.description);
+
+  final String storageValue;
+  final String label;
+  final String description;
+
+  bool get usesLargeText => this == AppInterfaceMode.largeText;
+  bool get usesSimpleNavigation => this == AppInterfaceMode.simple;
+
+  static AppInterfaceMode fromStorage(Object? value) => values.firstWhere(
+    (item) => item.storageValue == value,
+    orElse: () => AppInterfaceMode.standard,
+  );
+}

@@ -1,20 +1,38 @@
 # ShiftAlarm 测试说明
 
-适用版本：`v1.0.0-beta.1`
+适用版本：`1.0.0+5`（Beta002 candidate）
 
 ## 发布基线
 
 | 检查 | 结果 |
 | --- | --- |
 | `flutter analyze` | No issues found |
-| Flutter/Dart/Widget | 162/162 passed |
+| Flutter/Dart/Widget | 230/230 passed |
 | Kotlin/JUnit | 23/23 passed |
-| 自动化总计 | 185/185 passed |
-| Android API 36 人工流程 | 7/7 passed |
+| 自动化总计 | 253/253 passed |
+| Android API 36 Beta002 模式流程 | 已完成候选构建模拟器回归 |
 | Debug APK | 构建成功 |
-| Release APK | 构建、覆盖安装成功 |
+| Release APK | 构建成功、签名校验通过 |
 
-第三、第四阶段的详细验收证据分别见 `docs/STAGE3_ACCEPTANCE_REPORT.md` 和 `docs/STAGE4_ACCEPTANCE_REPORT.md`。
+第三、第四阶段的详细验收证据分别见 `docs/STAGE3_ACCEPTANCE_REPORT.md` 和 `docs/STAGE4_ACCEPTANCE_REPORT.md`；Beta002 候选构建结果见 `docs/BETA002_ACCEPTANCE_REPORT.md`。
+
+## Beta002 API 36 已完成的人工检查
+
+1. 清除数据后显示三种界面模式，选择简易模式并在重启后保持
+2. 简易首页显示通俗权限提醒、今日/明日安排和下一次闹钟
+3. 从七天列表安排明日班次，并在保存前显示原来/修改后及闹钟数量
+4. 切换大字模式，将 Android 字体缩放调至 `2.0`，浏览五个主页面且无 RenderFlex overflow
+5. 切换回标准模式并强制结束/重启应用，今日和明日排班保持不变
+6. `dumpsys alarm` 仅保留当前排班对应的 `10000`、`10001`、`10002` 三条有效精确闹钟
+7. Logcat 未发现 FATAL EXCEPTION、ANR 或 RenderFlex overflow
+
+## Beta002 发布前仍需真机完成
+
+1. 开启 TalkBack 后逐项操作首页、七天排班、日历、班次按钮和调班弹窗
+2. 关闭并重新开启精确闹钟、通知及全屏提醒权限，确认通俗提示与自动恢复
+3. 简易模式登记近期自定义铃声闹钟，结束普通应用进程并锁屏等待响铃
+4. 贪睡后再次响铃并停止，检查前台服务、Audio Focus、振动和 WakeLock 全部释放
+5. 在目标厂商真机检查电池优化、自启动和后台限制
 
 ## 本地自动化命令
 

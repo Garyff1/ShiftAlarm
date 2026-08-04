@@ -9,6 +9,7 @@ import '../../data/models/daily_schedule.dart';
 import '../../data/models/shift_template.dart';
 import '../shifts/shift_controller.dart';
 import 'schedule_controller.dart';
+import 'shift_change_confirmation.dart';
 import 'shift_picker_sheet.dart';
 
 Future<void> showScheduleDayDetails(BuildContext context, DateTime date) =>
@@ -73,48 +74,6 @@ class _ScheduleDaySheetState extends State<_ScheduleDaySheet> {
         false;
   }
 
-  Future<String?> _confirmTemporaryChange(
-    ShiftTemplate oldShift,
-    ShiftTemplate newShift,
-  ) async {
-    final reason = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认临时调班'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${widget.date.month}月${widget.date.day}日原为 ${oldShift.code} ${oldShift.name}，是否临时调整为 ${newShift.code} ${newShift.name}？',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: reason,
-              decoration: const InputDecoration(
-                labelText: '原因（可选）',
-                hintText: '例如：临时安排、与同事换班',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, reason.text.trim()),
-            child: const Text('确认调整'),
-          ),
-        ],
-      ),
-    );
-    reason.dispose();
-    return result;
-  }
-
   Future<void> _chooseShift({ShiftType? filter}) async {
     if (!await _confirmPastEdit() || !mounted) return;
     final controller = context.read<ScheduleController>();
@@ -125,26 +84,18 @@ class _ScheduleDaySheetState extends State<_ScheduleDaySheet> {
     );
     if (selected == null || !mounted) return;
     final existing = controller.scheduleFor(widget.date);
-    String reason = '';
-    if (existing != null && existing.shiftTemplateId != selected.id) {
-      final oldShift = controller.shiftFor(existing);
-      if (oldShift == null) {
-        _message('原班次数据缺失，请确认后重新选择');
-      } else {
-        final confirmedReason = await _confirmTemporaryChange(
-          oldShift,
-          selected,
-        );
-        if (confirmedReason == null) return;
-        reason = confirmedReason;
-      }
+    if (existing?.shiftTemplateId == selected.id) {
+      _message('当前已经是 ${selected.code} ${selected.name}');
+      return;
     }
-    try {
-      await controller.setShift(widget.date, selected, reason: reason);
-      if (!mounted) return;
-      _closeWithMessage(existing == null ? '排班已保存' : '临时调班已完成');
-    } on AppException catch (error) {
-      _message(error.userMessage);
+    final updated = await confirmAndSetShift(
+      context,
+      date: widget.date,
+      newShift: selected,
+      reason: existing == null ? '手动安排班次' : '临时调班',
+    );
+    if (updated != null && mounted) {
+      Navigator.of(context).pop();
     }
   }
 
@@ -206,17 +157,14 @@ class _ScheduleDaySheetState extends State<_ScheduleDaySheet> {
 
   Future<void> _applySpecialShift(ShiftTemplate shift) async {
     if (!await _confirmPastEdit() || !mounted) return;
-    final controller = context.read<ScheduleController>();
-    try {
-      await controller.setShift(
-        widget.date,
-        shift,
-        reason: '标记${shift.type.label}',
-      );
-      if (!mounted) return;
-      _closeWithMessage('已标记为${shift.type.label}');
-    } on AppException catch (error) {
-      _message(error.userMessage);
+    final updated = await confirmAndSetShift(
+      context,
+      date: widget.date,
+      newShift: shift,
+      reason: '标记${shift.type.label}',
+    );
+    if (updated != null && mounted) {
+      Navigator.of(context).pop();
     }
   }
 

@@ -1,7 +1,7 @@
 name: shift_alarm
 description: "ShiftAlarm 排班闹钟 - 可扩展的排班与提醒基础应用。"
 publish_to: 'none'
-version: 1.0.0+4
+version: 1.0.0+5
 
 environment:
   sdk: ^3.11.5

@@ -9,4 +9,10 @@ class AppNavigationController extends ChangeNotifier {
     _index = index;
     notifyListeners();
   }
+
+  void ensureWithin(int maximumIndex) {
+    if (_index <= maximumIndex) return;
+    _index = 0;
+    notifyListeners();
+  }
 }
