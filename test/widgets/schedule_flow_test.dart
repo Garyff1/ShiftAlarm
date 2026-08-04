@@ -71,7 +71,7 @@ Future<_Harness> _pumpScheduleApp(
   WidgetTester tester, {
   List<ShiftTemplate> shifts = const [],
   List<MapEntry<DateTime, ShiftTemplate>> schedules = const [],
-  AppSettings settings = const AppSettings(),
+  AppSettings settings = const AppSettings(onboardingCompleted: true),
 }) async {
   final store = MemoryLocalDataStore();
   final scheduleRepository = LocalDailyScheduleRepository(store);
@@ -198,8 +198,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('早班'));
     await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('shift-change-preview-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text('将取消 0 个旧闹钟'), findsOneWidget);
+    expect(find.text('将设置 1 个新闹钟'), findsOneWidget);
+    await tester.tap(find.text('确认修改'));
+    await tester.pumpAndSettle();
 
-    expect(find.text('排班已保存'), findsOneWidget);
+    expect(find.byKey(const Key('shift-change-result')), findsOneWidget);
     expect(
       (await harness.scheduleRepository.getByDate(today))?.shiftTemplateId,
       a1.id,
@@ -221,8 +229,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('晚班'));
     await tester.pumpAndSettle();
-    expect(find.text('确认临时调班'), findsOneWidget);
-    await tester.tap(find.text('确认调整'));
+    expect(
+      find.byKey(const Key('shift-change-preview-dialog')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('确认修改'), findsWidgets);
+    expect(find.text('将取消 1 个旧闹钟'), findsOneWidget);
+    expect(find.text('将设置 1 个新闹钟'), findsOneWidget);
+    await tester.tap(find.text('确认修改'));
     await tester.pumpAndSettle();
 
     final saved = await harness.scheduleRepository.getByDate(today);
@@ -230,7 +244,7 @@ void main() {
     expect(saved?.originalShiftTemplateId, a1.id);
     expect(saved?.isTemporaryChanged, isTrue);
     expect(find.text('调'), findsOneWidget);
-    expect(find.text('临时调班已完成'), findsOneWidget);
+    expect(find.byKey(const Key('shift-change-result')), findsOneWidget);
   });
 
   testWidgets('临时调班后可从详情恢复原排班', (tester) async {
@@ -299,7 +313,7 @@ void main() {
 
     expect(find.text('A1 · 早班'), findsOneWidget);
     expect(find.text('B1 · 晚班'), findsOneWidget);
-    expect(find.text('闹钟已开启'), findsOneWidget);
+    expect(find.text('闹钟已经设置'), findsWidgets);
     expect(find.text('今天'), findsWidgets);
     expect(find.text('明天'), findsWidgets);
   });
@@ -386,7 +400,10 @@ void main() {
       tester,
       shifts: [a1],
       schedules: [MapEntry(today, a1)],
-      settings: const AppSettings(themeMode: AppThemeMode.dark),
+      settings: const AppSettings(
+        themeMode: AppThemeMode.dark,
+        onboardingCompleted: true,
+      ),
     );
     await _openSchedule(tester);
 

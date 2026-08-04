@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shift_alarm/app/app_navigation.dart';
 import 'package:shift_alarm/app/shift_alarm_app.dart';
 import 'package:shift_alarm/data/models/app_enums.dart';
+import 'package:shift_alarm/data/models/app_settings.dart';
 import 'package:shift_alarm/data/repositories/app_settings_repository.dart';
 import 'package:shift_alarm/data/repositories/alarm_record_repository.dart';
 import 'package:shift_alarm/data/repositories/alarm_sound_repository.dart';
@@ -48,7 +49,9 @@ Future<_Harness> _pumpApp(
     store,
     referenceChecker: scheduleRepository.getShiftReferenceSummary,
   );
-  final settings = settingsRepository ?? MemoryAppSettingsRepository();
+  final settings =
+      settingsRepository ??
+      MemoryAppSettingsRepository(const AppSettings(onboardingCompleted: true));
   final appController = AppController(
     store: store,
     settingsRepository: settings,
@@ -180,13 +183,22 @@ void main() {
   });
 
   testWidgets('设置修改后离开页面并重新初始化仍有效', (tester) async {
-    final settingsRepository = MemoryAppSettingsRepository();
+    final settingsRepository = MemoryAppSettingsRepository(
+      const AppSettings(onboardingCompleted: true),
+    );
     await _pumpApp(tester, settingsRepository: settingsRepository);
 
     await tester.tap(find.text('设置').last);
     await tester.pumpAndSettle();
+    final settingsScroll = find.byKey(const PageStorageKey('settings-page'));
+    await tester.dragUntilVisible(
+      find.text('使用 24 小时制'),
+      settingsScroll,
+      const Offset(0, -160),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('使用 24 小时制'), findsOneWidget);
-    await tester.tap(find.text('使用 24 小时制'));
+    await tester.tap(find.widgetWithText(SwitchListTile, '使用 24 小时制'));
     await tester.pumpAndSettle();
     expect((await settingsRepository.load()).use24HourFormat, isFalse);
 
