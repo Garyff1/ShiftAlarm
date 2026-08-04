@@ -92,7 +92,7 @@ Beta002 的三种界面模式、简易排班、调班前后预览、大字/最�
     P0 的实现、自动化和构建已完成；发布级真机 P0 回归尚未完成，因此报告不宣称 Beta002 正式发布通过。P1 已完成倒计时、触觉反馈、通俗权限和高对比度；未完成撤销、页面朗读、月份切换动画及完整动效增强。
 
 27. **Pull Request 地址**
-    提交并推送后填写。建议标题：`Beta002: add large text, simple mode and accessibility improvements`。在 PR CI 与真机发布验收通过前不合并、不打 `v1.0.0-beta.2` 标签。
+    Draft PR：<https://github.com/Garyff1/ShiftAlarm/pull/1>，标题为 `Beta002: add large text, simple mode and accessibility improvements`。在 PR CI 与真机发布验收通过前不合并、不打 `v1.0.0-beta.2` 标签。
 
 28. **下一阶段建议**
     先在用户手机完成报告中标记为待测的四条发布验收并记录厂商/系统权限状态；再完成 API 24–35 代表版本矩阵和正式 Release keystore。Beta002 发布后，根据真机反馈选择 Beta003 备份/诊断/兼容性修复，或 V1.1 Excel/CSV 导入与核实流程。
