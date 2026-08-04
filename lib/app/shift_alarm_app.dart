@@ -6,6 +6,7 @@ import '../core/constants/app_constants.dart';
 import '../core/theme/app_theme.dart';
 import '../data/models/app_enums.dart';
 import '../features/settings/app_controller.dart';
+import '../features/settings/interface_mode_page.dart';
 import '../features/alarms/alarm_controller.dart';
 import '../features/shifts/shift_controller.dart';
 import '../features/schedule/schedule_controller.dart';
@@ -107,11 +108,31 @@ class _ShiftAlarmAppState extends State<ShiftAlarmApp>
       builder: (context, app, _) => MaterialApp(
         title: AppConstants.appName,
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
-        darkTheme: AppTheme.dark(),
+        theme: AppTheme.light(
+          interfaceMode: app.settings.interfaceMode,
+          highContrast: app.settings.highContrastEnabled,
+          reduceMotion: app.settings.reduceMotion,
+        ),
+        darkTheme: AppTheme.dark(
+          interfaceMode: app.settings.interfaceMode,
+          highContrast: app.settings.highContrastEnabled,
+          reduceMotion: app.settings.reduceMotion,
+        ),
         themeMode: _themeMode(app.settings.themeMode),
+        builder: (context, child) {
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(
+              disableAnimations:
+                  media.disableAnimations || app.settings.reduceMotion,
+            ),
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
         home: app.initializationError == null
-            ? const MainShell()
+            ? app.settings.onboardingCompleted
+                  ? const MainShell()
+                  : const InterfaceModePage(onboarding: true)
             : Scaffold(
                 appBar: AppBar(title: const Text(AppConstants.appName)),
                 body: ErrorState(

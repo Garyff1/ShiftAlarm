@@ -4,6 +4,11 @@ import 'model_parsers.dart';
 class AppSettings {
   const AppSettings({
     this.themeMode = AppThemeMode.system,
+    this.interfaceMode = AppInterfaceMode.standard,
+    this.reduceMotion = false,
+    this.highContrastEnabled = false,
+    this.readAloudEnabled = false,
+    this.hapticFeedbackEnabled = true,
     this.weekStartDay = 1,
     this.use24HourFormat = true,
     this.alarmGenerationDays = 14,
@@ -16,6 +21,11 @@ class AppSettings {
   });
 
   final AppThemeMode themeMode;
+  final AppInterfaceMode interfaceMode;
+  final bool reduceMotion;
+  final bool highContrastEnabled;
+  final bool readAloudEnabled;
+  final bool hapticFeedbackEnabled;
   final int weekStartDay;
   final bool use24HourFormat;
   final int alarmGenerationDays;
@@ -28,6 +38,11 @@ class AppSettings {
 
   AppSettings copyWith({
     AppThemeMode? themeMode,
+    AppInterfaceMode? interfaceMode,
+    bool? reduceMotion,
+    bool? highContrastEnabled,
+    bool? readAloudEnabled,
+    bool? hapticFeedbackEnabled,
     int? weekStartDay,
     bool? use24HourFormat,
     int? alarmGenerationDays,
@@ -40,6 +55,11 @@ class AppSettings {
     bool? onboardingCompleted,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
+    interfaceMode: interfaceMode ?? this.interfaceMode,
+    reduceMotion: reduceMotion ?? this.reduceMotion,
+    highContrastEnabled: highContrastEnabled ?? this.highContrastEnabled,
+    readAloudEnabled: readAloudEnabled ?? this.readAloudEnabled,
+    hapticFeedbackEnabled: hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,
     weekStartDay: weekStartDay ?? this.weekStartDay,
     use24HourFormat: use24HourFormat ?? this.use24HourFormat,
     alarmGenerationDays: alarmGenerationDays ?? this.alarmGenerationDays,
@@ -56,6 +76,11 @@ class AppSettings {
 
   Map<String, Object?> toMap() => {
     'themeMode': themeMode.storageValue,
+    'interfaceMode': interfaceMode.storageValue,
+    'reduceMotion': reduceMotion,
+    'highContrastEnabled': highContrastEnabled,
+    'readAloudEnabled': readAloudEnabled,
+    'hapticFeedbackEnabled': hapticFeedbackEnabled,
     'weekStartDay': weekStartDay,
     'use24HourFormat': use24HourFormat,
     'alarmGenerationDays': alarmGenerationDays,
@@ -69,6 +94,14 @@ class AppSettings {
 
   factory AppSettings.fromMap(Map<String, Object?> map) => AppSettings(
     themeMode: AppThemeMode.fromStorage(map['themeMode']),
+    interfaceMode: AppInterfaceMode.fromStorage(map['interfaceMode']),
+    reduceMotion: parseBool(map['reduceMotion']),
+    highContrastEnabled: parseBool(map['highContrastEnabled']),
+    readAloudEnabled: parseBool(map['readAloudEnabled']),
+    hapticFeedbackEnabled: parseBool(
+      map['hapticFeedbackEnabled'],
+      fallback: true,
+    ),
     weekStartDay: parseInt(map['weekStartDay'], fallback: 1).clamp(1, 7),
     use24HourFormat: parseBool(map['use24HourFormat'], fallback: true),
     alarmGenerationDays: parseInt(
@@ -92,6 +125,8 @@ class AppSettings {
       fallback: true,
     ),
     defaultSoundId: parseNullableString(map['defaultSoundId']),
-    onboardingCompleted: parseBool(map['onboardingCompleted']),
+    onboardingCompleted: map.containsKey('interfaceMode')
+        ? parseBool(map['onboardingCompleted'])
+        : true,
   );
 }

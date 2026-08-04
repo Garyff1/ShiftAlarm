@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/theme/app_mode_theme.dart';
 import '../../data/models/app_enums.dart';
 import '../../data/models/app_settings.dart';
 import '../../data/models/sound_ids.dart';
@@ -11,6 +12,7 @@ import '../alarms/permission_center_page.dart';
 import '../sounds/sound_controller.dart';
 import '../sounds/sound_picker_sheet.dart';
 import 'app_controller.dart';
+import 'interface_mode_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -50,12 +52,18 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = context.watch<AppController>().settings;
     final alarms = context.watch<AlarmController>();
+    final mode = AppModeTheme.of(context);
     return CustomScrollView(
       key: const PageStorageKey('settings-page'),
       slivers: [
         const SliverAppBar.large(title: Text('设置')),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+          padding: EdgeInsets.fromLTRB(
+            mode.pagePadding,
+            0,
+            mode.pagePadding,
+            28,
+          ),
           sliver: SliverList.list(
             children: [
               _SectionTitle('外观'),
@@ -63,6 +71,20 @@ class SettingsPage extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    ListTile(
+                      key: const Key('interface-mode-settings-tile'),
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.view_quilt_rounded),
+                      title: const Text('界面模式'),
+                      subtitle: Text(settings.interfaceMode.label),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const InterfaceModePage(),
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 24),
                     Text(
                       '主题模式',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -86,6 +108,49 @@ class SettingsPage extends StatelessWidget {
                           context,
                           settings.copyWith(themeMode: selection.first),
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _SectionTitle('无障碍与操作'),
+              SectionCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      key: const Key('high-contrast-setting'),
+                      secondary: const Icon(Icons.contrast_rounded),
+                      title: const Text('高对比度显示'),
+                      subtitle: const Text('提高文字、边框和状态标记的辨识度'),
+                      value: settings.highContrastEnabled,
+                      onChanged: (value) => _save(
+                        context,
+                        settings.copyWith(highContrastEnabled: value),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      key: const Key('reduce-motion-setting'),
+                      secondary: const Icon(Icons.motion_photos_off_rounded),
+                      title: const Text('减少动态效果'),
+                      subtitle: const Text('关闭非必要的页面和卡片动画'),
+                      value: settings.reduceMotion,
+                      onChanged: (value) => _save(
+                        context,
+                        settings.copyWith(reduceMotion: value),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      key: const Key('haptic-feedback-setting'),
+                      secondary: const Icon(Icons.vibration_rounded),
+                      title: const Text('操作触觉反馈'),
+                      subtitle: const Text('点击主要按钮时提供轻微振动'),
+                      value: settings.hapticFeedbackEnabled,
+                      onChanged: (value) => _save(
+                        context,
+                        settings.copyWith(hapticFeedbackEnabled: value),
                       ),
                     ),
                   ],
