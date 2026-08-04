@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/app_mode_theme.dart';
 import '../../shared/widgets/async_states.dart';
 import 'alarm_controller.dart';
 import 'alarm_records_page.dart';
 
 class PermissionCenterPage extends StatelessWidget {
-  const PermissionCenterPage({super.key});
+  const PermissionCenterPage({super.key, this.simpleMode = false});
+
+  final bool simpleMode;
 
   Future<void> _explainExact(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -65,6 +68,17 @@ class PermissionCenterPage extends StatelessWidget {
     final controller = context.watch<AlarmController>();
     final state = controller.permissions;
     final remaining = controller.testRemainingSeconds;
+    final simple = simpleMode;
+    final overall = simple
+        ? !state.exactAlarm
+              ? '当前闹钟可能无法准时响'
+              : !state.notifications ||
+                    !state.fullScreenIntent ||
+                    state.volumeMuted ||
+                    !state.ignoringBatteryOptimizations
+              ? '有一项需要处理'
+              : '闹钟设置正常'
+        : controller.overallStatus;
     return Scaffold(
       appBar: AppBar(
         title: const Text('权限中心'),
@@ -77,7 +91,12 @@ class PermissionCenterPage extends StatelessWidget {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: EdgeInsets.fromLTRB(
+          AppModeTheme.of(context).pagePadding,
+          8,
+          AppModeTheme.of(context).pagePadding,
+          32,
+        ),
         children: [
           SectionCard(
             child: Row(
@@ -97,13 +116,17 @@ class PermissionCenterPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        controller.overallStatus,
+                        overall,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text('系统权限可能随时被撤销，应用每次回到前台都会重新检查。'),
+                      Text(
+                        simple
+                            ? '按下面提示处理后，闹钟会自动重新设置。'
+                            : '系统权限可能随时被撤销，应用每次回到前台都会重新检查。',
+                      ),
                     ],
                   ),
                 ),
@@ -117,16 +140,16 @@ class PermissionCenterPage extends StatelessWidget {
               children: [
                 _PermissionTile(
                   icon: Icons.alarm_on_rounded,
-                  title: '精确闹钟',
+                  title: simple ? '允许闹钟准时响' : '精确闹钟',
                   status: state.exactAlarm ? '已开启' : '未开启',
                   good: state.exactAlarm,
-                  action: '去设置',
+                  action: simple ? '现在去开启' : '去设置',
                   onTap: () => _explainExact(context),
                 ),
                 const Divider(height: 1),
                 _PermissionTile(
                   icon: Icons.notifications_active_outlined,
-                  title: '通知',
+                  title: simple ? '允许显示闹钟提醒' : '通知',
                   status: state.notifications ? '已开启' : '未开启',
                   good: state.notifications,
                   action: state.notifications ? '设置' : '申请',
@@ -137,7 +160,7 @@ class PermissionCenterPage extends StatelessWidget {
                 const Divider(height: 1),
                 _PermissionTile(
                   icon: Icons.fullscreen_rounded,
-                  title: '锁屏全屏提醒',
+                  title: simple ? '允许锁屏时显示闹钟画面' : '锁屏全屏提醒',
                   status: state.fullScreenIntent ? '已开启' : '受限',
                   good: state.fullScreenIntent,
                   action: '去设置',
@@ -159,7 +182,7 @@ class PermissionCenterPage extends StatelessWidget {
                 const Divider(height: 1),
                 _PermissionTile(
                   icon: Icons.battery_saver_outlined,
-                  title: '电池优化',
+                  title: simple ? '防止手机限制闹钟运行' : '电池优化',
                   status: state.ignoringBatteryOptimizations ? '不受限制' : '可能受限',
                   good: state.ignoringBatteryOptimizations,
                   action: '查看说明',

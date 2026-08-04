@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/errors/app_exception.dart';
+import '../../core/theme/app_mode_theme.dart';
 import '../../core/utils/id_generator.dart';
 import '../../data/models/app_enums.dart';
 import '../../data/models/daily_schedule.dart';
@@ -374,6 +375,7 @@ class _CalendarGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final weekStart = context.watch<AppController>().settings.weekStartDay;
+    final mode = AppModeTheme.of(context);
     const mondayLabels = ['一', '二', '三', '四', '五', '六', '日'];
     final labels = weekStart == 7
         ? ['日', ...mondayLabels.take(6)]
@@ -409,9 +411,9 @@ class _CalendarGrid extends StatelessWidget {
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7,
-              childAspectRatio: 0.76,
+              childAspectRatio: mode.largeText ? 0.58 : 0.76,
               mainAxisSpacing: 4,
               crossAxisSpacing: 4,
             ),
@@ -449,117 +451,134 @@ class _CalendarCell extends StatelessWidget {
     final color = shift == null
         ? Theme.of(context).colorScheme.outline
         : Color(shift.colorValue);
-    return Opacity(
-      opacity: isCurrentMonth ? (isPast ? 0.78 : 1) : 0.35,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          key: Key('calendar-${DailySchedule.dateKeyOf(date)}'),
-          onTap: () {
-            if (!isCurrentMonth) return;
-            if (controller.batchMode) {
-              controller.toggleDate(date);
-            } else {
-              showScheduleDayDetails(context, date);
-            }
-          },
-          onLongPress: isCurrentMonth
-              ? () => controller.enterBatch(date)
-              : null,
-          borderRadius: BorderRadius.circular(12),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 5),
-            decoration: BoxDecoration(
-              color: selected
-                  ? Theme.of(context).colorScheme.primaryContainer
-                  : shift == null
-                  ? null
-                  : color.withValues(
-                      alpha: Theme.of(context).brightness == Brightness.dark
-                          ? 0.22
-                          : 0.13,
-                    ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: schedule?.isTemporaryChanged == true
-                    ? Colors.orange
-                    : isToday
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.transparent,
-                width: schedule?.isTemporaryChanged == true || isToday
-                    ? 1.6
-                    : 1,
-              ),
-            ),
-            child: Stack(
-              children: [
-                Column(
-                  children: [
-                    Align(
-                      alignment: Alignment.topLeft,
-                      child: Text(
-                        '${date.day}',
-                        style: TextStyle(
-                          fontWeight: isToday
-                              ? FontWeight.w800
-                              : FontWeight.w500,
-                          color: isToday
-                              ? Theme.of(context).colorScheme.primary
-                              : null,
-                        ),
+    const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    final semanticLabel = shift == null
+        ? '${date.month}月${date.day}日，${weekdays[date.weekday - 1]}，未排班'
+        : '${date.month}月${date.day}日，${weekdays[date.weekday - 1]}，${shift.code}${shift.name}${schedule?.isTemporaryChanged == true ? '，临时调班' : ''}';
+    return Semantics(
+      container: true,
+      button: isCurrentMonth,
+      selected: selected,
+      label: semanticLabel,
+      hint: isCurrentMonth
+          ? controller.batchMode
+                ? '双击选择或取消选择日期'
+                : shift == null
+                ? '双击设置班次'
+                : '双击查看详情'
+          : '不在当前月份',
+      child: Opacity(
+        opacity: isCurrentMonth ? (isPast ? 0.78 : 1) : 0.35,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: Key('calendar-${DailySchedule.dateKeyOf(date)}'),
+            onTap: () {
+              if (!isCurrentMonth) return;
+              if (controller.batchMode) {
+                controller.toggleDate(date);
+              } else {
+                showScheduleDayDetails(context, date);
+              }
+            },
+            onLongPress: isCurrentMonth
+                ? () => controller.enterBatch(date)
+                : null,
+            borderRadius: BorderRadius.circular(12),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 5),
+              decoration: BoxDecoration(
+                color: selected
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : shift == null
+                    ? null
+                    : color.withValues(
+                        alpha: Theme.of(context).brightness == Brightness.dark
+                            ? 0.22
+                            : 0.13,
                       ),
-                    ),
-                    const Spacer(),
-                    if (shift != null)
-                      Text(
-                        shift.code,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 11,
-                          height: 1,
-                          color: color,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      )
-                    else if (schedule != null)
-                      Icon(
-                        Icons.error_outline_rounded,
-                        size: 14,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    const SizedBox(height: 2),
-                  ],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: schedule?.isTemporaryChanged == true
+                      ? Colors.orange
+                      : isToday
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.transparent,
+                  width: schedule?.isTemporaryChanged == true || isToday
+                      ? 1.6
+                      : 1,
                 ),
-                if (schedule?.isTemporaryChanged == true)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(
-                        color: Colors.orange,
-                        shape: BoxShape.circle,
+              ),
+              child: Stack(
+                children: [
+                  Column(
+                    children: [
+                      Align(
+                        alignment: Alignment.topLeft,
+                        child: Text(
+                          '${date.day}',
+                          style: TextStyle(
+                            fontWeight: isToday
+                                ? FontWeight.w800
+                                : FontWeight.w500,
+                            color: isToday
+                                ? Theme.of(context).colorScheme.primary
+                                : null,
+                          ),
+                        ),
                       ),
-                      child: const Text(
-                        '调',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 8,
-                          fontWeight: FontWeight.w800,
+                      const Spacer(),
+                      if (shift != null)
+                        Text(
+                          shift.code,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                height: 1.05,
+                                color: color,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        )
+                      else if (schedule != null)
+                        Icon(
+                          Icons.error_outline_rounded,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      const SizedBox(height: 2),
+                    ],
+                  ),
+                  if (schedule?.isTemporaryChanged == true)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: Colors.orange,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Text(
+                          '调',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                if (selected)
-                  const Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Icon(Icons.check_circle_rounded, size: 16),
-                  ),
-              ],
+                  if (selected)
+                    const Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Icon(Icons.check_circle_rounded, size: 16),
+                    ),
+                ],
+              ),
             ),
           ),
         ),

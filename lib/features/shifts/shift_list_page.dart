@@ -120,97 +120,106 @@ class _ShiftCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Color(shift.colorValue);
     final time = shift.arrivalTime?.format() ?? '无需到岗';
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  shift.code,
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
+    final enabledReminders = shift.reminderRules
+        .where((rule) => rule.isEnabled)
+        .length;
+    return Semantics(
+      button: true,
+      label:
+          '${shift.code}${shift.name}，$time，$enabledReminders条提醒，${shift.isEnabled ? '已启用' : '已停用'}',
+      hint: '双击编辑班次',
+      child: Card(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    shift.code,
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            shift.name,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              shift.name,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
                           ),
-                        ),
-                        if (!shift.isEnabled) ...[
-                          const SizedBox(width: 8),
-                          const Chip(
-                            label: Text('已停用'),
-                            visualDensity: VisualDensity.compact,
-                          ),
+                          if (!shift.isEnabled) ...[
+                            const SizedBox(width: 8),
+                            const Chip(
+                              label: Text('已停用'),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${shift.type.label} · $time${shift.arrivalDayOffset == 1 ? '（次日）' : ''}',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
-                    ),
-                    if (shift.reminderRules.isNotEmpty) ...[
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 5),
                       Text(
-                        '${shift.reminderRules.where((rule) => rule.isEnabled).length} 条启用提醒',
-                        style: Theme.of(context).textTheme.labelMedium,
+                        '${shift.type.label} · $time${shift.arrivalDayOffset == 1 ? '（次日）' : ''}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
+                      if (shift.reminderRules.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          '${shift.reminderRules.where((rule) => rule.isEnabled).length} 条启用提醒',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                      ],
                     ],
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: '更多班次操作',
+                  onSelected: (value) => value == 'edit' ? onTap() : onDelete(),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: ListTile(
+                        leading: Icon(Icons.edit_outlined),
+                        title: Text('编辑'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: ListTile(
+                        leading: Icon(Icons.delete_outline),
+                        title: Text('删除'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
                   ],
                 ),
-              ),
-              PopupMenuButton<String>(
-                tooltip: '更多操作',
-                onSelected: (value) => value == 'edit' ? onTap() : onDelete(),
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'edit',
-                    child: ListTile(
-                      leading: Icon(Icons.edit_outlined),
-                      title: Text('编辑'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: ListTile(
-                      leading: Icon(Icons.delete_outline),
-                      title: Text('删除'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

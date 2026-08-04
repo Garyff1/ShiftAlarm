@@ -24,6 +24,7 @@ class ScheduleController extends ChangeNotifier {
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime get selectedMonth => _selectedMonth;
   Map<String, DailySchedule> schedules = const {};
+  Map<String, DailySchedule> upcomingSchedules = const {};
   Map<String, ShiftTemplate> templates = const {};
   List<ScheduleChangeLog> changeLogs = const [];
   DailySchedule? todaySchedule;
@@ -41,7 +42,8 @@ class ScheduleController extends ChangeNotifier {
       schedule == null ? null : templates[schedule.originalShiftTemplateId];
 
   DailySchedule? scheduleFor(DateTime date) =>
-      schedules[DailySchedule.dateKeyOf(date)];
+      schedules[DailySchedule.dateKeyOf(date)] ??
+      upcomingSchedules[DailySchedule.dateKeyOf(date)];
 
   List<ShiftTemplate> get enabledTemplates =>
       templates.values.where((item) => item.isEnabled).toList()
@@ -68,6 +70,14 @@ class ScheduleController extends ChangeNotifier {
       templates = {for (final item in allTemplates) item.id: item};
       final monthSchedules = await repository.getByMonth(_selectedMonth);
       schedules = {for (final item in monthSchedules) item.dateKey: item};
+      final today = DailySchedule.normalizeDate(DateTime.now());
+      final nextSevenDays = await repository.getByDateRange(
+        today,
+        today.add(const Duration(days: 6)),
+      );
+      upcomingSchedules = {
+        for (final item in nextSevenDays) item.dateKey: item,
+      };
       todaySchedule = await repository.getToday();
       tomorrowSchedule = await repository.getTomorrow();
       await loadLogs(notify: false);

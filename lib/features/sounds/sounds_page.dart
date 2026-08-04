@@ -254,7 +254,11 @@ class _SoundsPageState extends State<SoundsPage> {
                 child: ListTile(
                   key: const Key('system-sound-tile'),
                   leading: IconButton.filledTonal(
-                    tooltip: '试听系统铃声',
+                    tooltip:
+                        controller.previewSoundId == SoundIds.system &&
+                            controller.previewState.isPlaying
+                        ? '暂停试听'
+                        : '试听铃声',
                     onPressed: controller.playSystemPreview,
                     icon: Icon(
                       controller.previewSoundId == SoundIds.system &&
@@ -449,7 +453,9 @@ class _SoundCard extends StatelessWidget {
         children: [
           ListTile(
             leading: IconButton.filledTonal(
-              tooltip: sound.isAvailable ? (isPlaying ? '暂停' : '试听') : '铃声不可用',
+              tooltip: sound.isAvailable
+                  ? (isPlaying ? '暂停试听' : '试听铃声')
+                  : '铃声不可用',
               onPressed: onPlay,
               icon: Icon(
                 isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
