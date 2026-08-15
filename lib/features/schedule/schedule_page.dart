@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/errors/app_exception.dart';
 import '../../core/theme/app_mode_theme.dart';
+import '../../core/utils/alarm_time_calculator.dart';
 import '../../core/utils/id_generator.dart';
 import '../../data/models/app_enums.dart';
 import '../../data/models/daily_schedule.dart';
@@ -86,13 +87,19 @@ class SchedulePage extends StatelessWidget {
     if (picked != null) await controller.selectMonth(picked);
   }
 
-  Future<void> _applyBatch(BuildContext context, {ShiftType? filter}) async {
+  Future<void> _applyBatch(
+    BuildContext context, {
+    ShiftType? filter,
+    ShiftTemplate? selectedShift,
+  }) async {
     final controller = context.read<ScheduleController>();
     final matching = filter == null
         ? controller.enabledTemplates
         : controller.enabledTemplates.where((item) => item.type == filter);
-    ShiftTemplate? shift;
-    if (filter != null && matching.isEmpty) {
+    ShiftTemplate? shift = selectedShift;
+    if (shift != null) {
+      // 快速排班已在进入选择模式前确定班次。
+    } else if (filter != null && matching.isEmpty) {
       shift = await _quickCreateSpecialShift(context, filter);
     } else {
       shift = await showShiftPicker(
@@ -156,6 +163,26 @@ class SchedulePage extends StatelessWidget {
     }
   }
 
+  Future<void> _beginQuickSchedule(BuildContext context) async {
+    final controller = context.read<ScheduleController>();
+    final shift = await showShiftPicker(
+      context,
+      shifts: controller.enabledTemplates,
+    );
+    if (shift != null && context.mounted) {
+      final appController = context.read<AppController>();
+      if (appController.settings.scheduleViewMode != ScheduleViewMode.month) {
+        await appController.updateSettings(
+          appController.settings.copyWith(
+            scheduleViewMode: ScheduleViewMode.month,
+          ),
+        );
+      }
+      if (!context.mounted) return;
+      controller.startQuickSchedule(shift);
+    }
+  }
+
   Future<void> _clearBatch(BuildContext context) async {
     final controller = context.read<ScheduleController>();
     final confirmed = await showDialog<bool>(
@@ -195,6 +222,8 @@ class SchedulePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<ScheduleController>();
+    final appController = context.watch<AppController>();
+    final viewMode = appController.settings.scheduleViewMode;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -263,16 +292,36 @@ class SchedulePage extends StatelessWidget {
                 key: const PageStorageKey('schedule-calendar'),
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
                 children: [
-                  _MonthHeader(
-                    month: controller.selectedMonth,
-                    onPrevious: () => controller.changeMonth(-1),
-                    onNext: () => controller.changeMonth(1),
-                    onPick: () => _pickMonth(context),
+                  _ScheduleViewSelector(
+                    selected: viewMode,
+                    enabled: !controller.batchMode,
+                    onChanged: (value) => appController.updateSettings(
+                      appController.settings.copyWith(scheduleViewMode: value),
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  _CalendarGrid(controller: controller),
-                  const SizedBox(height: 14),
-                  _MonthSummary(controller: controller),
+                  if (!controller.batchMode)
+                    FilledButton.tonalIcon(
+                      onPressed: () => _beginQuickSchedule(context),
+                      icon: const Icon(Icons.playlist_add_check_circle_rounded),
+                      label: const Text('快速排班：先选班次，再点日期'),
+                    ),
+                  if (!controller.batchMode) const SizedBox(height: 12),
+                  if (viewMode == ScheduleViewMode.month) ...[
+                    _MonthHeader(
+                      month: controller.selectedMonth,
+                      onPrevious: () => controller.changeMonth(-1),
+                      onNext: () => controller.changeMonth(1),
+                      onPick: () => _pickMonth(context),
+                    ),
+                    const SizedBox(height: 12),
+                    _CalendarGrid(controller: controller),
+                    const SizedBox(height: 14),
+                    _MonthSummary(controller: controller),
+                  ] else if (viewMode == ScheduleViewMode.week)
+                    _WeekScheduleView(controller: controller)
+                  else
+                    _ListScheduleView(controller: controller),
                 ],
               ),
             ),
@@ -283,34 +332,59 @@ class SchedulePage extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: FilledButton.icon(
-                        onPressed: controller.selectedDateKeys.isEmpty
-                            ? null
-                            : () => _applyBatch(context),
-                        icon: const Icon(Icons.badge_outlined),
-                        label: const Text('设置班次'),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (controller.quickScheduleShift != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text(
+                                '${controller.quickScheduleShift!.code} ${controller.quickScheduleShift!.name} · 已选 ${controller.selectedDateKeys.length} 天',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          FilledButton.icon(
+                            onPressed: controller.selectedDateKeys.isEmpty
+                                ? null
+                                : () => _applyBatch(
+                                    context,
+                                    selectedShift:
+                                        controller.quickScheduleShift,
+                                  ),
+                            icon: const Icon(Icons.badge_outlined),
+                            label: Text(
+                              controller.quickScheduleShift == null
+                                  ? '设置班次'
+                                  : '完成排班',
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
-                      onPressed: () =>
-                          _applyBatch(context, filter: ShiftType.rest),
-                      icon: const Icon(Icons.weekend_outlined),
-                      tooltip: '标记休息',
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
-                      onPressed: () =>
-                          _applyBatch(context, filter: ShiftType.leave),
-                      icon: const Icon(Icons.personal_injury_outlined),
-                      tooltip: '标记请假',
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
-                      onPressed: () => _clearBatch(context),
-                      icon: const Icon(Icons.delete_sweep_outlined),
-                      tooltip: '清除排班',
-                    ),
+                    if (controller.quickScheduleShift == null) ...[
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        onPressed: () =>
+                            _applyBatch(context, filter: ShiftType.rest),
+                        icon: const Icon(Icons.weekend_outlined),
+                        tooltip: '标记休息',
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        onPressed: () =>
+                            _applyBatch(context, filter: ShiftType.leave),
+                        icon: const Icon(Icons.personal_injury_outlined),
+                        tooltip: '标记请假',
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        onPressed: () => _clearBatch(context),
+                        icon: const Icon(Icons.delete_sweep_outlined),
+                        tooltip: '清除排班',
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -318,6 +392,384 @@ class SchedulePage extends StatelessWidget {
           : null,
     );
   }
+}
+
+class _ScheduleViewSelector extends StatelessWidget {
+  const _ScheduleViewSelector({
+    required this.selected,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final ScheduleViewMode selected;
+  final bool enabled;
+  final ValueChanged<ScheduleViewMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    child: SegmentedButton<ScheduleViewMode>(
+      segments: ScheduleViewMode.values
+          .map(
+            (mode) => ButtonSegment<ScheduleViewMode>(
+              value: mode,
+              label: Text(mode.label),
+              icon: Icon(switch (mode) {
+                ScheduleViewMode.month => Icons.calendar_month_rounded,
+                ScheduleViewMode.week => Icons.view_week_outlined,
+                ScheduleViewMode.list => Icons.view_agenda_outlined,
+              }),
+            ),
+          )
+          .toList(),
+      selected: {selected},
+      onSelectionChanged: enabled
+          ? (values) {
+              if (values.isNotEmpty) onChanged(values.first);
+            }
+          : null,
+    ),
+  );
+}
+
+class _WeekScheduleView extends StatefulWidget {
+  const _WeekScheduleView({required this.controller});
+  final ScheduleController controller;
+
+  @override
+  State<_WeekScheduleView> createState() => _WeekScheduleViewState();
+}
+
+class _WeekScheduleViewState extends State<_WeekScheduleView> {
+  late DateTime _anchor = DailySchedule.normalizeDate(DateTime.now());
+  bool _loaded = false;
+
+  DateTime _weekStart(int weekStartDay) {
+    final offset = weekStartDay == 7
+        ? _anchor.weekday % 7
+        : _anchor.weekday - 1;
+    return _anchor.subtract(Duration(days: offset));
+  }
+
+  Future<void> _load(int weekStartDay) async {
+    final start = _weekStart(weekStartDay);
+    await widget.controller.loadRange(
+      start,
+      start.add(const Duration(days: 6)),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    _loaded = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load(context.read<AppController>().settings.weekStartDay);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final weekStartDay = context.watch<AppController>().settings.weekStartDay;
+    final start = _weekStart(weekStartDay);
+    final dates = List.generate(7, (index) => start.add(Duration(days: index)));
+    return Column(
+      children: [
+        SectionCard(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: '上一周',
+                onPressed: () {
+                  setState(
+                    () => _anchor = _anchor.subtract(const Duration(days: 7)),
+                  );
+                  _load(weekStartDay);
+                },
+                icon: const Icon(Icons.chevron_left_rounded),
+              ),
+              Expanded(
+                child: Text(
+                  '${start.month}月${start.day}日 — ${dates.last.month}月${dates.last.day}日',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '下一周',
+                onPressed: () {
+                  setState(
+                    () => _anchor = _anchor.add(const Duration(days: 7)),
+                  );
+                  _load(weekStartDay);
+                },
+                icon: const Icon(Icons.chevron_right_rounded),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        ...dates.map(
+          (date) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _ScheduleDayTimelineCard(
+              date: date,
+              controller: widget.controller,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+enum _ScheduleListRange { sevenDays, month, custom }
+
+class _ListScheduleView extends StatefulWidget {
+  const _ListScheduleView({required this.controller});
+  final ScheduleController controller;
+
+  @override
+  State<_ListScheduleView> createState() => _ListScheduleViewState();
+}
+
+class _ListScheduleViewState extends State<_ListScheduleView> {
+  _ScheduleListRange _range = _ScheduleListRange.sevenDays;
+  late DateTime _start = DailySchedule.normalizeDate(DateTime.now());
+  late DateTime _end = _start.add(const Duration(days: 6));
+  bool _loaded = false;
+
+  Future<void> _setRange(_ScheduleListRange range) async {
+    final now = DailySchedule.normalizeDate(DateTime.now());
+    if (range == _ScheduleListRange.custom) {
+      final picked = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2035, 12, 31),
+        initialDateRange: DateTimeRange(start: _start, end: _end),
+        helpText: '选择列表日期范围',
+      );
+      if (picked == null) return;
+      _start = picked.start;
+      _end = picked.end;
+    } else if (range == _ScheduleListRange.month) {
+      _start = DateTime(now.year, now.month);
+      _end = DateTime(now.year, now.month + 1, 0);
+    } else {
+      _start = now;
+      _end = now.add(const Duration(days: 6));
+    }
+    setState(() => _range = range);
+    await widget.controller.loadRange(_start, _end);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    _loaded = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.controller.loadRange(_start, _end);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dayCount = _end.difference(_start).inDays + 1;
+    final dates = List.generate(
+      dayCount,
+      (index) => _start.add(Duration(days: index)),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('未来 7 天'),
+              selected: _range == _ScheduleListRange.sevenDays,
+              onSelected: (_) => _setRange(_ScheduleListRange.sevenDays),
+            ),
+            ChoiceChip(
+              label: const Text('本月'),
+              selected: _range == _ScheduleListRange.month,
+              onSelected: (_) => _setRange(_ScheduleListRange.month),
+            ),
+            ChoiceChip(
+              label: Text(
+                _range == _ScheduleListRange.custom
+                    ? '${_start.month}/${_start.day}–${_end.month}/${_end.day}'
+                    : '自定义',
+              ),
+              selected: _range == _ScheduleListRange.custom,
+              onSelected: (_) => _setRange(_ScheduleListRange.custom),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...dates.map(
+          (date) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _ScheduleDayTimelineCard(
+              date: date,
+              controller: widget.controller,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScheduleDayTimelineCard extends StatelessWidget {
+  const _ScheduleDayTimelineCard({
+    required this.date,
+    required this.controller,
+  });
+
+  final DateTime date;
+  final ScheduleController controller;
+
+  String _time(DateTime value) =>
+      '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final schedule = controller.scheduleFor(date);
+    final shift = controller.shiftFor(schedule);
+    final rules = schedule?.reminderOverrides.isNotEmpty == true
+        ? schedule!.reminderOverrides
+        : shift?.reminderRules ?? const [];
+    final reminders = shift == null
+        ? const <MapEntry<dynamic, DateTime>>[]
+        : AlarmTimeCalculator.calculateAndSort(
+            scheduleDate: date,
+            arrivalTime: shift.arrivalTime,
+            arrivalDayOffset: shift.arrivalDayOffset,
+            rules: rules,
+          );
+    final arrival = shift?.arrivalTime == null
+        ? null
+        : DateTime(
+            date.year,
+            date.month,
+            date.day + shift!.arrivalDayOffset,
+            shift.arrivalTime!.hour,
+            shift.arrivalTime!.minute,
+          );
+    final color = shift == null
+        ? Theme.of(context).colorScheme.outline
+        : Color(shift.colorValue);
+    const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+    return SectionCard(
+      child: InkWell(
+        onTap: () => showScheduleDayDetails(context, date),
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${date.month}月${date.day}日 · 周${weekdays[date.weekday - 1]}',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  if (shift != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${shift.code} · ${shift.type.label}${schedule?.isTemporaryChanged == true ? ' · 临时' : ''}',
+                        style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (shift == null)
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('未排班'),
+                    SizedBox(height: 3),
+                    Text('今天没有工作提醒'),
+                  ],
+                )
+              else if (shift.type != ShiftType.work)
+                Text('${shift.name} · ${shift.type.label}')
+              else ...[
+                for (final reminder in reminders)
+                  _TimelineLine(
+                    icon: Icons.alarm_rounded,
+                    time: _time(reminder.value),
+                    label: reminder.key.name,
+                  ),
+                if (arrival != null)
+                  _TimelineLine(
+                    icon: Icons.login_rounded,
+                    time: _time(arrival),
+                    label: '到岗 · ${shift.name}',
+                  ),
+                if (reminders.isEmpty && arrival == null)
+                  const Text('尚未设置到岗时间和提醒'),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineLine extends StatelessWidget {
+  const _TimelineLine({
+    required this.icon,
+    required this.time,
+    required this.label,
+  });
+  final IconData icon;
+  final String time;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 5),
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 48,
+          child: Text(
+            time,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        Expanded(child: Text(label)),
+      ],
+    ),
+  );
 }
 
 class _MonthHeader extends StatelessWidget {
@@ -530,17 +982,30 @@ class _CalendarCell extends StatelessWidget {
                       ),
                       const Spacer(),
                       if (shift != null)
-                        Text(
-                          shift.code,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                height: 1.05,
-                                color: color,
-                                fontWeight: FontWeight.w800,
-                              ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              shift.code,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    height: 1.05,
+                                    color: color,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                            Text(
+                              '${shift.type.label}${schedule?.isTemporaryChanged == true ? ' · 临时' : ''}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(fontSize: 8.5, height: 1.05),
+                            ),
+                          ],
                         )
                       else if (schedule != null)
                         Icon(

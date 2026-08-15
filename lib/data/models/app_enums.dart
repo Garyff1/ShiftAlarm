@@ -128,6 +128,21 @@ enum ScheduleChangeType {
   );
 }
 
+enum ScheduleViewMode {
+  month('month', '月'),
+  week('week', '周'),
+  list('list', '列表');
+
+  const ScheduleViewMode(this.storageValue, this.label);
+  final String storageValue;
+  final String label;
+
+  static ScheduleViewMode fromStorage(Object? value) => values.firstWhere(
+    (item) => item.storageValue == value,
+    orElse: () => ScheduleViewMode.month,
+  );
+}
+
 enum AppThemeMode {
   system('system', '跟随系统'),
   light('light', '浅色'),

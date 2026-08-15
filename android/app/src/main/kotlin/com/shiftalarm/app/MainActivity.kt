@@ -2,6 +2,7 @@ package com.shiftalarm.app
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Intent
@@ -9,13 +10,17 @@ import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
+import android.os.Process
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.Calendar
+import java.util.TimeZone
 import java.util.concurrent.Executors
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     private var notificationPermissionResult: MethodChannel.Result? = null
@@ -32,7 +37,13 @@ class MainActivity : FlutterActivity() {
                 "scheduleAlarm" -> {
                     val payload = AlarmPayload.fromMap(call.arguments as Map<*, *>)
                     val scheduled = NativeAlarmScheduler.schedule(this, payload)
-                    result.success(mapOf("success" to scheduled.isSuccess, "error" to scheduled.exceptionOrNull()?.message))
+                    result.success(
+                        mapOf(
+                            "success" to scheduled.isSuccess,
+                            "error" to scheduled.exceptionOrNull()?.message,
+                            "scheduleApi" to NativeAlarmScheduler.scheduleApi(payload),
+                        ),
+                    )
                 }
                 "cancelAlarm" -> {
                     val id = call.argument<Int>("nativeAlarmId") ?: 0
@@ -48,6 +59,19 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "consumeEvents" -> result.success(NativeAlarmStore.consumeEvents(this))
+                "consumeLifecycleEvents" -> result.success(
+                    NativeAlarmStore.consumeLifecycleEvents(this),
+                )
+                "getStartupInfo" -> result.success(startupInfo())
+                "getDeviceInfo" -> result.success(deviceInfo())
+                "shareDiagnosticReport" -> runCatching {
+                    shareDiagnosticReport(
+                        call.argument<String>("json") ?: "{}",
+                        call.argument<String>("summary") ?: "ShiftAlarm 诊断报告",
+                    )
+                }.fold(result::success) {
+                    result.error("diagnostic_share_failed", it.javaClass.simpleName, null)
+                }
                 "consumeSoundEvents" -> result.success(NativeAlarmStore.consumeSoundEvents(this))
                 "pickSound" -> openSoundPicker(result)
                 "commitSoundImport" -> runSoundTask(result) {
@@ -117,6 +141,13 @@ class MainActivity : FlutterActivity() {
                 }
                 "scheduleTestAlarm" -> {
                     val seconds = call.argument<Int>("delaySeconds")?.coerceAtLeast(1) ?: 60
+                    val testMode = call.argument<String>("testMode") ?: "standard"
+                    val testLabel = when (testMode) {
+                        "lock_screen" -> "锁屏测试闹钟"
+                        "background" -> "后台划掉测试闹钟"
+                        "reboot" -> "重启恢复测试闹钟"
+                        else -> "普通测试闹钟"
+                    }
                     val trigger = System.currentTimeMillis() + seconds * 1000L
                     val calendar = Calendar.getInstance().apply { timeInMillis = trigger }
                     val payload = AlarmPayload(
@@ -129,9 +160,9 @@ class MainActivity : FlutterActivity() {
                         triggerDay = calendar.get(Calendar.DAY_OF_MONTH),
                         triggerHour = calendar.get(Calendar.HOUR_OF_DAY),
                         triggerMinute = calendar.get(Calendar.MINUTE),
-                        reminderName = "一分钟测试闹钟",
+                        reminderName = testLabel,
                         shiftCode = "TEST",
-                        shiftName = "系统闹钟自检",
+                        shiftName = "系统闹钟自检 · $testLabel",
                         arrivalAt = null,
                         isTemporary = false,
                         isCore = true,
@@ -149,8 +180,25 @@ class MainActivity : FlutterActivity() {
                         fadeIn = call.argument<Boolean>("fadeIn") ?: true,
                     )
                     val scheduled = NativeAlarmScheduler.schedule(this, payload)
-                    if (scheduled.isSuccess) NativeAlarmStore.upsertSnapshot(this, payload)
-                    result.success(mapOf("success" to scheduled.isSuccess, "error" to scheduled.exceptionOrNull()?.message))
+                    if (scheduled.isSuccess) {
+                        NativeAlarmStore.upsertSnapshot(this, payload)
+                        NativeAlarmStore.appendLifecycleEvent(
+                            this,
+                            payload,
+                            "scheduled",
+                            details = mapOf(
+                                "scheduleApi" to NativeAlarmScheduler.scheduleApi(payload),
+                                "testMode" to testMode,
+                            ),
+                        )
+                    }
+                    result.success(
+                        mapOf(
+                            "success" to scheduled.isSuccess,
+                            "error" to scheduled.exceptionOrNull()?.message,
+                            "scheduleApi" to NativeAlarmScheduler.scheduleApi(payload),
+                        ),
+                    )
                 }
                 "cancelTestAlarm" -> {
                     NativeAlarmScheduler.cancel(this, NativeAlarmScheduler.TEST_ALARM_ID)
@@ -181,6 +229,79 @@ class MainActivity : FlutterActivity() {
             "ignoringBatteryOptimizations" to powerManager.isIgnoringBatteryOptimizations(packageName),
             "alarmVolume" to audioManager.getStreamVolume(AudioManager.STREAM_ALARM),
             "maxAlarmVolume" to audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM),
+        )
+    }
+
+    private fun startupInfo(): Map<String, Any> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            return mapOf(
+                "supported" to false,
+                "wasForceStopped" to false,
+                "reason" to -1,
+                "startType" to -1,
+            )
+        }
+        val activityManager = getSystemService(ActivityManager::class.java)
+        val starts = activityManager.getHistoricalProcessStartReasons(8)
+        val current = starts.firstOrNull { it.pid == Process.myPid() }
+            ?: starts.firstOrNull()
+        return mapOf(
+            "supported" to true,
+            "wasForceStopped" to (current?.wasForceStopped() == true),
+            "reason" to (current?.reason ?: -1),
+            "startType" to (current?.startType ?: -1),
+            "startComponent" to if (Build.VERSION.SDK_INT >= 36) {
+                current?.startComponent ?: -1
+            } else {
+                -1
+            },
+        )
+    }
+
+    private fun deviceInfo(): Map<String, Any> = mapOf(
+        "manufacturer" to Build.MANUFACTURER,
+        "model" to Build.MODEL,
+        "androidVersion" to Build.VERSION.RELEASE,
+        "sdkInt" to Build.VERSION.SDK_INT,
+        "timezone" to TimeZone.getDefault().id,
+    )
+
+    private fun shareDiagnosticReport(json: String, summary: String): Map<String, Any> {
+        val directory = File(cacheDir, "diagnostics").apply { mkdirs() }
+        directory.listFiles()?.forEach { file ->
+            if (System.currentTimeMillis() - file.lastModified() > 7L * 24L * 60L * 60L * 1000L) {
+                file.delete()
+            }
+        }
+        val timestamp = System.currentTimeMillis()
+        val jsonFile = File(directory, "shiftalarm-diagnostic-$timestamp.json").apply {
+            writeText(json, Charsets.UTF_8)
+        }
+        val textFile = File(directory, "shiftalarm-diagnostic-$timestamp.txt").apply {
+            writeText(summary, Charsets.UTF_8)
+        }
+        val uris = arrayListOf(
+            FileProvider.getUriForFile(
+                this,
+                "$packageName.diagnostic_files",
+                jsonFile,
+            ),
+            FileProvider.getUriForFile(
+                this,
+                "$packageName.diagnostic_files",
+                textFile,
+            ),
+        )
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "application/octet-stream"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            putExtra(Intent.EXTRA_SUBJECT, "ShiftAlarm 脱敏诊断报告")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(intent, "导出诊断报告"))
+        return mapOf(
+            "success" to true,
+            "files" to listOf(jsonFile.name, textFile.name),
         )
     }
 

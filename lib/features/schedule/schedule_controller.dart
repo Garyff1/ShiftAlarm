@@ -25,6 +25,7 @@ class ScheduleController extends ChangeNotifier {
   DateTime get selectedMonth => _selectedMonth;
   Map<String, DailySchedule> schedules = const {};
   Map<String, DailySchedule> upcomingSchedules = const {};
+  Map<String, DailySchedule> rangeSchedules = const {};
   Map<String, ShiftTemplate> templates = const {};
   List<ScheduleChangeLog> changeLogs = const [];
   DailySchedule? todaySchedule;
@@ -33,6 +34,7 @@ class ScheduleController extends ChangeNotifier {
   bool isOperating = false;
   String? errorMessage;
   bool batchMode = false;
+  ShiftTemplate? quickScheduleShift;
   final Set<String> selectedDateKeys = {};
 
   ShiftTemplate? shiftFor(DailySchedule? schedule) =>
@@ -43,7 +45,8 @@ class ScheduleController extends ChangeNotifier {
 
   DailySchedule? scheduleFor(DateTime date) =>
       schedules[DailySchedule.dateKeyOf(date)] ??
-      upcomingSchedules[DailySchedule.dateKeyOf(date)];
+      upcomingSchedules[DailySchedule.dateKeyOf(date)] ??
+      rangeSchedules[DailySchedule.dateKeyOf(date)];
 
   List<ShiftTemplate> get enabledTemplates =>
       templates.values.where((item) => item.isEnabled).toList()
@@ -173,6 +176,18 @@ class ScheduleController extends ChangeNotifier {
   Future<DailySchedule?> restore(DateTime date) =>
       _operate(() => repository.restoreOriginal(date, templates: templates));
 
+  Future<void> undoShiftChange(DateTime date, DailySchedule? snapshot) async {
+    await _operate(
+      () => repository.restoreSnapshot(date, snapshot, templates: templates),
+    );
+  }
+
+  Future<void> loadRange(DateTime start, DateTime end) async {
+    final values = await repository.getByDateRange(start, end);
+    rangeSchedules = {for (final item in values) item.dateKey: item};
+    notifyListeners();
+  }
+
   Future<void> deleteDate(DateTime date) async {
     await _operate(() => repository.deleteByDate(date, templates: templates));
   }
@@ -235,6 +250,7 @@ class ScheduleController extends ChangeNotifier {
 
   void enterBatch(DateTime initialDate) {
     batchMode = true;
+    quickScheduleShift = null;
     selectedDateKeys
       ..clear()
       ..add(DailySchedule.dateKeyOf(initialDate));
@@ -244,12 +260,22 @@ class ScheduleController extends ChangeNotifier {
   void toggleDate(DateTime date) {
     final key = DailySchedule.dateKeyOf(date);
     if (!selectedDateKeys.remove(key)) selectedDateKeys.add(key);
-    if (selectedDateKeys.isEmpty) batchMode = false;
+    if (selectedDateKeys.isEmpty && quickScheduleShift == null) {
+      batchMode = false;
+    }
+    notifyListeners();
+  }
+
+  void startQuickSchedule(ShiftTemplate shift) {
+    batchMode = true;
+    quickScheduleShift = shift;
+    selectedDateKeys.clear();
     notifyListeners();
   }
 
   void clearSelection() {
     batchMode = false;
+    quickScheduleShift = null;
     selectedDateKeys.clear();
     notifyListeners();
   }

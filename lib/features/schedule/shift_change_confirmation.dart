@@ -53,23 +53,55 @@ Future<DailySchedule?> confirmAndSetShift(
     messenger.showSnackBar(
       SnackBar(
         key: const Key('shift-change-result'),
-        content: Text(
-          successful
-              ? '已经改为 ${newShift.code}${newShift.name}，${FriendlyStatus.sync(syncStatus)}'
-              : '班次已经修改，但${FriendlyStatus.sync(syncStatus)}',
-        ),
-        action: successful
-            ? null
-            : SnackBarAction(
-                label: '立即处理',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => PermissionCenterPage(
-                      simpleMode: settings.interfaceMode.usesSimpleNavigation,
+        duration: const Duration(seconds: 7),
+        content: successful
+            ? Text(
+                '已经改为 ${newShift.code}${newShift.name}，${FriendlyStatus.sync(syncStatus)}',
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('班次已经修改，但${FriendlyStatus.sync(syncStatus)}'),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(
+                        context,
+                      ).colorScheme.inversePrimary,
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
                     ),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PermissionCenterPage(
+                          simpleMode:
+                              settings.interfaceMode.usesSimpleNavigation,
+                        ),
+                      ),
+                    ),
+                    child: const Text('打开闹钟健康中心'),
                   ),
-                ),
+                ],
               ),
+        action: SnackBarAction(
+          label: '撤销',
+          onPressed: () async {
+            try {
+              await controller.undoShiftChange(date, current);
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('已撤销上一次班次修改')));
+              }
+            } catch (_) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('撤销失败，请重新打开该日期检查')),
+                );
+              }
+            }
+          },
+        ),
       ),
     );
     return updated;

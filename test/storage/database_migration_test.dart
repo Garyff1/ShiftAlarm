@@ -103,7 +103,7 @@ void main() {
     await store.initialize();
     final shifts = await LocalShiftTemplateRepository(store).getAll();
     expect(shifts.single.code, 'A1');
-    expect(await store.databaseForTesting.getVersion(), 4);
+    expect(await store.databaseForTesting.getVersion(), 5);
     await store.databaseForTesting.close();
   });
 
@@ -138,6 +138,28 @@ void main() {
     final names = indexes.map((row) => row['name']).toSet();
     expect(names, contains('daily_schedules_date_unique'));
     expect(names, contains('daily_schedules_shift_template_id'));
+    await store.databaseForTesting.close();
+  });
+
+  test('升级到 v5 后创建独立闹钟生命周期表和索引', () async {
+    final store = SqliteLocalDataStore(
+      factory: factory,
+      databasePath: databasePath,
+    );
+    await store.initialize();
+    final tables = await store.databaseForTesting.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table'",
+    );
+    expect(
+      tables.map((row) => row['name']),
+      contains('alarm_lifecycle_events'),
+    );
+    final indexes = await store.databaseForTesting.rawQuery(
+      'PRAGMA index_list(alarm_lifecycle_events)',
+    );
+    final names = indexes.map((row) => row['name']).toSet();
+    expect(names, contains('lifecycle_alarm_id'));
+    expect(names, contains('lifecycle_occurred_at'));
     await store.databaseForTesting.close();
   });
 

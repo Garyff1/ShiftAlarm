@@ -31,10 +31,31 @@ class AlarmRingingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val incoming = AlarmPayload.fromIntent(intent) ?: return START_NOT_STICKY
-        when (intent?.action) {
-            ACTION_STOP -> finishAlarm("dismissed", "user_stopped")
-            ACTION_SNOOZE -> snooze(incoming)
-            else -> startRinging(incoming)
+        runCatching {
+            when (intent?.action) {
+                ACTION_STOP -> finishAlarm("dismissed", "user_stopped")
+                ACTION_SNOOZE -> snooze(incoming)
+                else -> startRinging(incoming)
+            }
+        }.onFailure { error ->
+            NativeAlarmStore.appendLifecycleEvent(
+                this,
+                incoming,
+                "service_failed",
+                if (error is SecurityException) {
+                    "notification_failure"
+                } else {
+                    "foreground_service_failure"
+                },
+                mapOf("errorType" to error.javaClass.simpleName),
+            )
+            NativeAlarmStore.appendEvent(
+                this,
+                incoming,
+                "failed",
+                reason = "ring_service_failure",
+            )
+            releaseAndStop(removeNotification = true)
         }
         return START_NOT_STICKY
     }
@@ -53,8 +74,25 @@ class AlarmRingingService : Service() {
         } else {
             startForeground(AlarmNotifications.RINGING_NOTIFICATION_ID, notification)
         }
+        NativeAlarmStore.appendLifecycleEvent(
+            this,
+            incoming,
+            "ring_service_started",
+            details = mapOf(
+                "notificationVisible" to true,
+                "fullScreenRequested" to (incoming.isCore || incoming.isTest),
+            ),
+        )
         acquireWakeLock(incoming)
-        playSound(incoming)
+        val audioStarted = playSound(incoming)
+        if (!audioStarted) {
+            NativeAlarmStore.appendEvent(
+                this,
+                incoming,
+                "failed",
+                reason = "audio_playback_failure",
+            )
+        }
         if (incoming.vibration) startVibration()
         handler.removeCallbacks(timeout)
         handler.postDelayed(timeout, AlarmPolicy.ringingTimeoutMillis(incoming.maxRingingMinutes))
@@ -110,10 +148,23 @@ class AlarmRingingService : Service() {
             .apply { acquire(AlarmPolicy.ringingTimeoutMillis(payload.maxRingingMinutes) + 10_000L) }
     }
 
-    private fun playSound(payload: AlarmPayload) {
-        audioPlayer = AlarmAudioPlayer(this) { reason ->
-            NativeAlarmStore.appendSoundEvent(this, payload, reason)
-        }.also { it.start(payload) }
+    private fun playSound(payload: AlarmPayload): Boolean {
+        audioPlayer = AlarmAudioPlayer(
+            context = this,
+            onCustomFallback = { reason ->
+                NativeAlarmStore.appendSoundEvent(this, payload, reason)
+            },
+            onLifecycle = { stage, failureCategory, details ->
+                NativeAlarmStore.appendLifecycleEvent(
+                    this,
+                    payload,
+                    stage,
+                    failureCategory,
+                    details,
+                )
+            },
+        )
+        return audioPlayer?.start(payload) == true
     }
 
     private fun startVibration() {
@@ -143,6 +194,12 @@ class AlarmRingingService : Service() {
         val result = NativeAlarmScheduler.schedule(this, snoozed)
         if (result.isSuccess) {
             NativeAlarmStore.upsertSnapshot(this, snoozed)
+            NativeAlarmStore.appendLifecycleEvent(
+                this,
+                snoozed,
+                "snoozed",
+                details = mapOf("snoozeCount" to snoozed.snoozeCount),
+            )
             NativeAlarmStore.appendEvent(this, snoozed, "snoozed", triggerAt = trigger)
             releaseAndStop(removeNotification = true)
         } else {
@@ -153,6 +210,24 @@ class AlarmRingingService : Service() {
     private fun finishAlarm(status: String, reason: String, keepMissedNotification: Boolean = false) {
         val current = payload
         if (current != null) {
+            val lifecycleStage = when {
+                status == "dismissed" -> "dismissed"
+                reason == "timed_out" -> "timeout"
+                reason.contains("playback", ignoreCase = true) -> "playback_failed"
+                else -> "service_failed"
+            }
+            val failureCategory = when (lifecycleStage) {
+                "playback_failed" -> "audio_playback_failure"
+                "service_failed" -> "foreground_service_failure"
+                else -> null
+            }
+            NativeAlarmStore.appendLifecycleEvent(
+                this,
+                current,
+                lifecycleStage,
+                failureCategory,
+                mapOf("reason" to reason),
+            )
             NativeAlarmStore.appendEvent(this, current, status, reason = reason)
             NativeAlarmStore.removeSnapshot(this, current.nativeAlarmId)
             if (keepMissedNotification) postMissedNotification(current)

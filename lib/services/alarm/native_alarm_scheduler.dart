@@ -4,6 +4,25 @@ import '../../data/models/alarm_record.dart';
 import '../../data/models/alarm_sound.dart';
 import '../../data/models/sound_ids.dart';
 
+enum AlarmTestMode {
+  standard('standard', '普通测试', '保持应用在前台，确认一分钟后能正常响铃。', 60),
+  lockScreen('lock_screen', '锁屏测试', '登记后立即锁屏，确认锁屏界面和声音都能出现。', 60),
+  background('background', '后台划掉测试', '登记后回到桌面，从最近任务划掉应用；不要在系统设置中“强行停止”。', 60),
+  reboot('reboot', '重启恢复测试', '登记后在两分钟内重启手机，确认开机后闹钟会被恢复。', 120);
+
+  const AlarmTestMode(
+    this.storageValue,
+    this.label,
+    this.instruction,
+    this.delaySeconds,
+  );
+
+  final String storageValue;
+  final String label;
+  final String instruction;
+  final int delaySeconds;
+}
+
 class AlarmPermissionState {
   const AlarmPermissionState({
     required this.exactAlarm,
@@ -46,9 +65,78 @@ class AlarmPermissionState {
 }
 
 class NativeScheduleResult {
-  const NativeScheduleResult({required this.success, this.error});
+  const NativeScheduleResult({
+    required this.success,
+    this.error,
+    this.scheduleApi,
+  });
   final bool success;
   final String? error;
+  final String? scheduleApi;
+}
+
+class NativeAppStartupInfo {
+  const NativeAppStartupInfo({
+    required this.supported,
+    required this.wasForceStopped,
+    this.reason = -1,
+    this.startType = -1,
+    this.startComponent = -1,
+  });
+
+  const NativeAppStartupInfo.unsupported()
+    : supported = false,
+      wasForceStopped = false,
+      reason = -1,
+      startType = -1,
+      startComponent = -1;
+
+  final bool supported;
+  final bool wasForceStopped;
+  final int reason;
+  final int startType;
+  final int startComponent;
+
+  factory NativeAppStartupInfo.fromMap(Map<Object?, Object?> map) =>
+      NativeAppStartupInfo(
+        supported: map['supported'] == true,
+        wasForceStopped: map['wasForceStopped'] == true,
+        reason: (map['reason'] as num?)?.toInt() ?? -1,
+        startType: (map['startType'] as num?)?.toInt() ?? -1,
+        startComponent: (map['startComponent'] as num?)?.toInt() ?? -1,
+      );
+}
+
+class NativeDeviceInfo {
+  const NativeDeviceInfo({
+    required this.manufacturer,
+    required this.model,
+    required this.androidVersion,
+    required this.sdkInt,
+    required this.timezone,
+  });
+
+  const NativeDeviceInfo.unknown()
+    : manufacturer = 'unknown',
+      model = 'unknown',
+      androidVersion = 'unknown',
+      sdkInt = 0,
+      timezone = 'unknown';
+
+  final String manufacturer;
+  final String model;
+  final String androidVersion;
+  final int sdkInt;
+  final String timezone;
+
+  factory NativeDeviceInfo.fromMap(Map<Object?, Object?> map) =>
+      NativeDeviceInfo(
+        manufacturer: map['manufacturer']?.toString() ?? 'unknown',
+        model: map['model']?.toString() ?? 'unknown',
+        androidVersion: map['androidVersion']?.toString() ?? 'unknown',
+        sdkInt: (map['sdkInt'] as num?)?.toInt() ?? 0,
+        timezone: map['timezone']?.toString() ?? 'unknown',
+      );
 }
 
 abstract interface class NativeAlarmScheduler {
@@ -57,6 +145,13 @@ abstract interface class NativeAlarmScheduler {
   Future<void> cancel(int nativeAlarmId);
   Future<void> replaceDirectBootSnapshots(Iterable<AlarmRecord> records);
   Future<List<Map<String, Object?>>> consumeNativeEvents();
+  Future<List<Map<String, Object?>>> consumeLifecycleEvents();
+  Future<NativeAppStartupInfo> getStartupInfo();
+  Future<NativeDeviceInfo> getDeviceInfo();
+  Future<bool> shareDiagnosticReport({
+    required String json,
+    required String summary,
+  });
   Future<void> openExactAlarmSettings();
   Future<bool> requestNotificationPermission();
   Future<void> openNotificationSettings();
@@ -65,6 +160,7 @@ abstract interface class NativeAlarmScheduler {
   Future<void> openBatterySettings();
   Future<NativeScheduleResult> scheduleTestAlarm({
     required int delaySeconds,
+    AlarmTestMode mode = AlarmTestMode.standard,
     AlarmSound? sound,
     bool fadeIn = true,
   });
@@ -122,6 +218,7 @@ class MethodChannelNativeAlarmScheduler implements NativeAlarmScheduler {
       return NativeScheduleResult(
         success: value?['success'] == true,
         error: value?['error']?.toString(),
+        scheduleApi: value?['scheduleApi']?.toString(),
       );
     } on PlatformException catch (error) {
       return NativeScheduleResult(success: false, error: error.message);
@@ -151,6 +248,45 @@ class MethodChannelNativeAlarmScheduler implements NativeAlarmScheduler {
   }
 
   @override
+  Future<List<Map<String, Object?>>> consumeLifecycleEvents() async {
+    final values = await _channel.invokeListMethod<Object?>(
+      'consumeLifecycleEvents',
+    );
+    return (values ?? const [])
+        .whereType<Map>()
+        .map((item) => item.cast<String, Object?>())
+        .toList();
+  }
+
+  @override
+  Future<NativeAppStartupInfo> getStartupInfo() async {
+    final value = await _channel.invokeMapMethod<Object?, Object?>(
+      'getStartupInfo',
+    );
+    return NativeAppStartupInfo.fromMap(value ?? const {});
+  }
+
+  @override
+  Future<NativeDeviceInfo> getDeviceInfo() async {
+    final value = await _channel.invokeMapMethod<Object?, Object?>(
+      'getDeviceInfo',
+    );
+    return NativeDeviceInfo.fromMap(value ?? const {});
+  }
+
+  @override
+  Future<bool> shareDiagnosticReport({
+    required String json,
+    required String summary,
+  }) async {
+    final value = await _channel.invokeMapMethod<Object?, Object?>(
+      'shareDiagnosticReport',
+      {'json': json, 'summary': summary},
+    );
+    return value?['success'] == true;
+  }
+
+  @override
   Future<void> openExactAlarmSettings() =>
       _channel.invokeMethod<void>('openExactAlarmSettings');
   @override
@@ -173,12 +309,14 @@ class MethodChannelNativeAlarmScheduler implements NativeAlarmScheduler {
   @override
   Future<NativeScheduleResult> scheduleTestAlarm({
     required int delaySeconds,
+    AlarmTestMode mode = AlarmTestMode.standard,
     AlarmSound? sound,
     bool fadeIn = true,
   }) async {
     final value = await _channel
         .invokeMapMethod<Object?, Object?>('scheduleTestAlarm', {
           'delaySeconds': delaySeconds,
+          'testMode': mode.storageValue,
           'soundId': sound?.id ?? SoundIds.system,
           'soundPath': sound?.internalPath,
           'soundChecksum': sound?.checksum,
@@ -211,9 +349,14 @@ class MemoryNativeAlarmScheduler implements NativeAlarmScheduler {
   AlarmPermissionState permissions;
   final Map<int, AlarmRecord> scheduled = {};
   final List<Map<String, Object?>> events = [];
+  final List<Map<String, Object?>> lifecycleEvents = [];
   List<AlarmRecord> snapshots = const [];
   bool failScheduling = false;
   bool testAlarmScheduled = false;
+  AlarmTestMode? scheduledTestMode;
+  NativeAppStartupInfo startupInfo = const NativeAppStartupInfo.unsupported();
+  NativeDeviceInfo deviceInfo = const NativeDeviceInfo.unknown();
+  bool diagnosticReportShared = false;
 
   @override
   Future<AlarmPermissionState> getPermissionState() async => permissions;
@@ -248,6 +391,26 @@ class MemoryNativeAlarmScheduler implements NativeAlarmScheduler {
   }
 
   @override
+  Future<List<Map<String, Object?>>> consumeLifecycleEvents() async {
+    final result = List<Map<String, Object?>>.of(lifecycleEvents);
+    lifecycleEvents.clear();
+    return result;
+  }
+
+  @override
+  Future<NativeAppStartupInfo> getStartupInfo() async => startupInfo;
+  @override
+  Future<NativeDeviceInfo> getDeviceInfo() async => deviceInfo;
+  @override
+  Future<bool> shareDiagnosticReport({
+    required String json,
+    required String summary,
+  }) async {
+    diagnosticReportShared = true;
+    return true;
+  }
+
+  @override
   Future<void> openAlarmVolumeSettings() async {}
   @override
   Future<void> openBatterySettings() async {}
@@ -263,10 +426,12 @@ class MemoryNativeAlarmScheduler implements NativeAlarmScheduler {
   @override
   Future<NativeScheduleResult> scheduleTestAlarm({
     required int delaySeconds,
+    AlarmTestMode mode = AlarmTestMode.standard,
     AlarmSound? sound,
     bool fadeIn = true,
   }) async {
     testAlarmScheduled = permissions.exactAlarm;
+    scheduledTestMode = testAlarmScheduled ? mode : null;
     return NativeScheduleResult(
       success: testAlarmScheduled,
       error: testAlarmScheduled ? null : 'exact_alarm_permission_denied',
@@ -274,5 +439,8 @@ class MemoryNativeAlarmScheduler implements NativeAlarmScheduler {
   }
 
   @override
-  Future<void> cancelTestAlarm() async => testAlarmScheduled = false;
+  Future<void> cancelTestAlarm() async {
+    testAlarmScheduled = false;
+    scheduledTestMode = null;
+  }
 }

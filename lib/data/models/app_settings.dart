@@ -10,6 +10,7 @@ class AppSettings {
     this.readAloudEnabled = false,
     this.hapticFeedbackEnabled = true,
     this.weekStartDay = 1,
+    this.scheduleViewMode = ScheduleViewMode.month,
     this.use24HourFormat = true,
     this.alarmGenerationDays = 14,
     this.defaultSnoozeMinutes = 10,
@@ -27,6 +28,7 @@ class AppSettings {
   final bool readAloudEnabled;
   final bool hapticFeedbackEnabled;
   final int weekStartDay;
+  final ScheduleViewMode scheduleViewMode;
   final bool use24HourFormat;
   final int alarmGenerationDays;
   final int defaultSnoozeMinutes;
@@ -44,6 +46,7 @@ class AppSettings {
     bool? readAloudEnabled,
     bool? hapticFeedbackEnabled,
     int? weekStartDay,
+    ScheduleViewMode? scheduleViewMode,
     bool? use24HourFormat,
     int? alarmGenerationDays,
     int? defaultSnoozeMinutes,
@@ -61,6 +64,7 @@ class AppSettings {
     readAloudEnabled: readAloudEnabled ?? this.readAloudEnabled,
     hapticFeedbackEnabled: hapticFeedbackEnabled ?? this.hapticFeedbackEnabled,
     weekStartDay: weekStartDay ?? this.weekStartDay,
+    scheduleViewMode: scheduleViewMode ?? this.scheduleViewMode,
     use24HourFormat: use24HourFormat ?? this.use24HourFormat,
     alarmGenerationDays: alarmGenerationDays ?? this.alarmGenerationDays,
     defaultSnoozeMinutes: defaultSnoozeMinutes ?? this.defaultSnoozeMinutes,
@@ -82,6 +86,7 @@ class AppSettings {
     'readAloudEnabled': readAloudEnabled,
     'hapticFeedbackEnabled': hapticFeedbackEnabled,
     'weekStartDay': weekStartDay,
+    'scheduleViewMode': scheduleViewMode.storageValue,
     'use24HourFormat': use24HourFormat,
     'alarmGenerationDays': alarmGenerationDays,
     'defaultSnoozeMinutes': defaultSnoozeMinutes,
@@ -103,6 +108,7 @@ class AppSettings {
       fallback: true,
     ),
     weekStartDay: parseInt(map['weekStartDay'], fallback: 1).clamp(1, 7),
+    scheduleViewMode: ScheduleViewMode.fromStorage(map['scheduleViewMode']),
     use24HourFormat: parseBool(map['use24HourFormat'], fallback: true),
     alarmGenerationDays: parseInt(
       map['alarmGenerationDays'],

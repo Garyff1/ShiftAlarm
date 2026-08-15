@@ -14,6 +14,9 @@ object NativeAlarmScheduler {
         return context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
     }
 
+    fun scheduleApi(payload: AlarmPayload): String =
+        if (payload.isCore) "setAlarmClock" else "setExactAndAllowWhileIdle"
+
     fun schedule(context: Context, payload: AlarmPayload): Result<Unit> = runCatching {
         val ready = DirectBootSoundStore.preparePayload(context, payload)
         require(ready.triggerAt > System.currentTimeMillis()) { "trigger_in_past" }

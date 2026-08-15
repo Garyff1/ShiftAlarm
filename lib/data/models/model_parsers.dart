@@ -8,6 +8,14 @@ DateTime parseDateTime(Object? value, {DateTime? fallback}) {
   return fallback ?? DateTime.fromMillisecondsSinceEpoch(0);
 }
 
+DateTime? parseNullableDateTime(Object? value) =>
+    value == null ? null : parseDateTime(value);
+
+String parseString(Object? value, {String fallback = ''}) {
+  final text = value?.toString();
+  return text == null || text.isEmpty ? fallback : text;
+}
+
 int parseInt(Object? value, {int fallback = 0}) {
   if (value is int) return value;
   if (value is num) return value.toInt();

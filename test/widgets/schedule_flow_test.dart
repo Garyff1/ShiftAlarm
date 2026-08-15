@@ -29,11 +29,13 @@ class _Harness {
     required this.scheduleRepository,
     required this.shiftRepository,
     required this.scheduleController,
+    required this.appController,
   });
 
   final LocalDailyScheduleRepository scheduleRepository;
   final LocalShiftTemplateRepository shiftRepository;
   final ScheduleController scheduleController;
+  final AppController appController;
 }
 
 ShiftTemplate _shift(
@@ -145,6 +147,7 @@ Future<_Harness> _pumpScheduleApp(
     scheduleRepository: scheduleRepository,
     shiftRepository: shiftRepository,
     scheduleController: scheduleController,
+    appController: appController,
   );
 }
 
@@ -155,6 +158,18 @@ Future<void> _openSchedule(WidgetTester tester) async {
 
 Finder _calendarCell(DateTime date) =>
     find.byKey(Key('calendar-${DailySchedule.dateKeyOf(date)}'));
+
+Future<void> _tapCalendar(WidgetTester tester, DateTime date) async {
+  await tester.ensureVisible(_calendarCell(date));
+  await tester.pumpAndSettle();
+  await tester.tap(_calendarCell(date));
+}
+
+Future<void> _longPressCalendar(WidgetTester tester, DateTime date) async {
+  await tester.ensureVisible(_calendarCell(date));
+  await tester.pumpAndSettle();
+  await tester.longPress(_calendarCell(date));
+}
 
 void main() {
   final today = DailySchedule.normalizeDate(DateTime.now());
@@ -180,7 +195,7 @@ void main() {
     await _pumpScheduleApp(tester);
     await _openSchedule(tester);
 
-    await tester.tap(_calendarCell(today));
+    await _tapCalendar(tester, today);
     await tester.pumpAndSettle();
 
     expect(find.text('当天尚未排班'), findsOneWidget);
@@ -192,7 +207,7 @@ void main() {
     final harness = await _pumpScheduleApp(tester, shifts: [a1]);
     await _openSchedule(tester);
 
-    await tester.tap(_calendarCell(today));
+    await _tapCalendar(tester, today);
     await tester.pumpAndSettle();
     await tester.tap(find.text('设置班次'));
     await tester.pumpAndSettle();
@@ -223,7 +238,7 @@ void main() {
     );
     await _openSchedule(tester);
 
-    await tester.tap(_calendarCell(today));
+    await _tapCalendar(tester, today);
     await tester.pumpAndSettle();
     await tester.tap(find.text('更换班次 / 临时调班'));
     await tester.pumpAndSettle();
@@ -245,6 +260,13 @@ void main() {
     expect(saved?.isTemporaryChanged, isTrue);
     expect(find.text('调'), findsOneWidget);
     expect(find.byKey(const Key('shift-change-result')), findsOneWidget);
+    expect(find.text('撤销'), findsOneWidget);
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    expect(
+      (await harness.scheduleRepository.getByDate(today))?.shiftTemplateId,
+      a1.id,
+    );
   });
 
   testWidgets('临时调班后可从详情恢复原排班', (tester) async {
@@ -261,7 +283,7 @@ void main() {
     await tester.pumpAndSettle();
     await _openSchedule(tester);
 
-    await tester.tap(_calendarCell(today));
+    await _tapCalendar(tester, today);
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('恢复原排班'));
     await tester.tap(find.text('恢复原排班'));
@@ -284,7 +306,7 @@ void main() {
     );
     await _openSchedule(tester);
 
-    await tester.tap(_calendarCell(today));
+    await _tapCalendar(tester, today);
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('删除当天排班'),
@@ -314,7 +336,7 @@ void main() {
     expect(find.text('A1 · 早班'), findsOneWidget);
     expect(find.text('B1 · 晚班'), findsOneWidget);
     expect(find.text('闹钟已经设置'), findsWidgets);
-    expect(find.text('今天'), findsWidgets);
+    expect(find.text('今日工作状态'), findsOneWidget);
     expect(find.text('明天'), findsWidgets);
   });
 
@@ -325,10 +347,10 @@ void main() {
     final harness = await _pumpScheduleApp(tester, shifts: [a1]);
     await _openSchedule(tester);
 
-    await tester.longPress(_calendarCell(today));
+    await _longPressCalendar(tester, today);
     await tester.pumpAndSettle();
     expect(find.text('已选择 1 天'), findsOneWidget);
-    await tester.tap(_calendarCell(next));
+    await _tapCalendar(tester, next);
     await tester.pumpAndSettle();
     expect(find.text('已选择 2 天'), findsOneWidget);
     expect(find.text('设置班次'), findsOneWidget);
@@ -337,6 +359,64 @@ void main() {
     expect(find.text('排班'), findsWidgets);
     expect(harness.scheduleController.batchMode, isFalse);
     expect(harness.scheduleController.selectedDateKeys, isEmpty);
+  });
+
+  testWidgets('月周列表三视图可切换并记住最后选择', (tester) async {
+    final harness = await _pumpScheduleApp(
+      tester,
+      shifts: [a1],
+      schedules: [MapEntry(today, a1)],
+    );
+    await _openSchedule(tester);
+    expect(find.text('月'), findsOneWidget);
+    expect(_calendarCell(today), findsOneWidget);
+
+    await tester.tap(find.text('周'));
+    await tester.pumpAndSettle();
+    expect(
+      harness.appController.settings.scheduleViewMode,
+      ScheduleViewMode.week,
+    );
+    expect(find.textContaining('到岗 · 早班'), findsOneWidget);
+
+    await tester.tap(find.text('列表'));
+    await tester.pumpAndSettle();
+    expect(
+      harness.appController.settings.scheduleViewMode,
+      ScheduleViewMode.list,
+    );
+    expect(find.text('未来 7 天'), findsOneWidget);
+    expect(find.text('本月'), findsOneWidget);
+    expect(find.text('自定义'), findsOneWidget);
+  });
+
+  testWidgets('快速排班先选班次再点日期并可二次点击取消选择', (tester) async {
+    final harness = await _pumpScheduleApp(tester, shifts: [a1]);
+    await _openSchedule(tester);
+
+    await tester.tap(find.text('快速排班：先选班次，再点日期'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('早班'));
+    await tester.pumpAndSettle();
+    expect(harness.scheduleController.quickScheduleShift?.id, a1.id);
+
+    await _tapCalendar(tester, today);
+    await tester.pumpAndSettle();
+    expect(harness.scheduleController.selectedDateKeys, hasLength(1));
+    await _tapCalendar(tester, today);
+    await tester.pumpAndSettle();
+    expect(harness.scheduleController.selectedDateKeys, isEmpty);
+    expect(harness.scheduleController.batchMode, isTrue);
+
+    await _tapCalendar(tester, today);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('完成排班'));
+    await tester.pumpAndSettle();
+    expect(
+      (await harness.scheduleRepository.getByDate(today))?.shiftTemplateId,
+      a1.id,
+    );
+    expect(harness.scheduleController.batchMode, isFalse);
   });
 
   testWidgets('连续切换月份 30 次后仍可返回当前月', (tester) async {
@@ -377,7 +457,7 @@ void main() {
   testWidgets('批量标记休息可在缺少模板时快速创建 OFF', (tester) async {
     final harness = await _pumpScheduleApp(tester);
     await _openSchedule(tester);
-    await tester.longPress(_calendarCell(today));
+    await _longPressCalendar(tester, today);
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('标记休息'));
     await tester.pumpAndSettle();
@@ -409,7 +489,7 @@ void main() {
 
     final context = tester.element(_calendarCell(today));
     expect(Theme.of(context).brightness, Brightness.dark);
-    await tester.tap(_calendarCell(today));
+    await _tapCalendar(tester, today);
     await tester.pumpAndSettle();
     expect(find.text('早班'), findsOneWidget);
     expect(tester.takeException(), isNull);

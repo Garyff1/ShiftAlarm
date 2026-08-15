@@ -7,6 +7,7 @@ import 'data/repositories/shift_template_repository.dart';
 import 'data/repositories/daily_schedule_repository.dart';
 import 'data/repositories/schedule_change_log_repository.dart';
 import 'data/repositories/alarm_record_repository.dart';
+import 'data/repositories/alarm_lifecycle_repository.dart';
 import 'data/repositories/alarm_sound_repository.dart';
 import 'data/storage/sqlite_local_data_store.dart';
 import 'features/settings/app_controller.dart';
@@ -48,6 +49,7 @@ Future<void> main() async {
     settingsRepository: settingsRepository,
   );
   final alarmRepository = LocalAlarmRecordRepository(store);
+  final lifecycleRepository = LocalAlarmLifecycleRepository(store);
   final soundRepository = LocalAlarmSoundRepository(store);
   const nativeScheduler = MethodChannelNativeAlarmScheduler();
   final alarmSyncCoordinator = AlarmSyncCoordinator(
@@ -57,12 +59,14 @@ Future<void> main() async {
     nativeScheduler: nativeScheduler,
     soundRepository: soundRepository,
     loadSettings: settingsRepository.load,
+    lifecycleRepository: lifecycleRepository,
   );
   syncBridge.delegate = alarmSyncCoordinator;
   final alarmController = AlarmController(
     coordinator: alarmSyncCoordinator,
     repository: alarmRepository,
     nativeScheduler: nativeScheduler,
+    lifecycleRepository: lifecycleRepository,
   );
   final shiftController = ShiftController(
     shiftRepository,

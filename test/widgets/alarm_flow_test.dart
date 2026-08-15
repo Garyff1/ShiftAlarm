@@ -110,8 +110,8 @@ void main() {
     final h = AlarmWidgetHarness(allGranted);
     await h.initialize();
     await h.pump(tester, const PermissionCenterPage());
-    expect(find.text('权限中心'), findsOneWidget);
-    expect(find.text('所有权限正常'), findsOneWidget);
+    expect(find.text('闹钟健康中心'), findsOneWidget);
+    expect(find.text('一切正常'), findsOneWidget);
     expect(find.text('精确闹钟'), findsOneWidget);
     expect(find.text('锁屏全屏提醒'), findsOneWidget);
     expect(find.text('正常 · 5/10'), findsOneWidget);
@@ -131,7 +131,7 @@ void main() {
     );
     await h.initialize();
     await h.pump(tester, const PermissionCenterPage());
-    expect(find.text('闹钟尚未生效'), findsOneWidget);
+    expect(find.text('需要处理'), findsOneWidget);
     expect(find.text('未开启'), findsOneWidget);
     await h.dispose(tester);
   });
@@ -149,7 +149,7 @@ void main() {
     );
     await h.initialize();
     await h.pump(tester, const PermissionCenterPage());
-    expect(find.text('部分功能受限'), findsOneWidget);
+    expect(find.text('需要处理'), findsOneWidget);
     expect(find.text('受限'), findsOneWidget);
     expect(find.text('所有权限正常'), findsNothing);
     await h.dispose(tester);
@@ -164,6 +164,8 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.ensureVisible(find.text('一分钟后测试'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('一分钟后测试'));
     await tester.pump();
     expect(h.native.testAlarmScheduled, isTrue);
@@ -173,6 +175,30 @@ void main() {
     await tester.pump();
     expect(h.native.testAlarmScheduled, isFalse);
     expect(find.text('测试已取消'), findsOneWidget);
+    await h.dispose(tester);
+  });
+
+  testWidgets('普通、锁屏、后台划掉和重启恢复测试入口彼此独立', (tester) async {
+    final h = AlarmWidgetHarness(allGranted);
+    await h.initialize();
+    await h.pump(tester, const PermissionCenterPage());
+    await tester.scrollUntilVisible(
+      find.text('重启恢复测试'),
+      250,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('一分钟后测试'), findsOneWidget);
+    expect(find.text('锁屏测试'), findsOneWidget);
+    expect(find.text('后台划掉测试'), findsOneWidget);
+    expect(find.text('重启恢复测试'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('后台划掉测试'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('后台划掉测试'));
+    await tester.pump();
+    expect(h.native.scheduledTestMode, AlarmTestMode.background);
+    expect(h.controller.activeTestMode, AlarmTestMode.background);
+    expect(find.textContaining('后台划掉测试闹钟等待触发'), findsOneWidget);
     await h.dispose(tester);
   });
 
@@ -194,6 +220,8 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).last,
     );
+    await tester.ensureVisible(find.text('一分钟后测试'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('一分钟后测试'));
     await tester.pumpAndSettle();
     expect(find.text('开启精确闹钟权限'), findsOneWidget);
@@ -236,7 +264,7 @@ void main() {
       const PermissionCenterPage(),
       brightness: Brightness.dark,
     );
-    expect(find.text('权限中心'), findsOneWidget);
+    expect(find.text('闹钟健康中心'), findsOneWidget);
     expect(find.byType(Card), findsWidgets);
     expect(
       Theme.of(tester.element(find.byType(Scaffold))).brightness,
