@@ -20,11 +20,13 @@ class SqliteLocalDataStore implements LocalDataStore {
   static const changeLogCollection = 'schedule_change_logs';
   static const alarmCollection = 'alarm_records';
   static const soundCollection = 'alarm_sounds';
+  static const lifecycleCollection = 'alarm_lifecycle_events';
   static const allowedCollections = {
     'shift_templates',
     scheduleCollection,
     alarmCollection,
     soundCollection,
+    lifecycleCollection,
     changeLogCollection,
   };
 
@@ -47,11 +49,13 @@ class SqliteLocalDataStore implements LocalDataStore {
             await _createVersionTwo(db);
             await _createVersionThree(db);
             await _createVersionFour(db);
+            await _createVersionFive(db);
           },
           onUpgrade: (db, oldVersion, newVersion) async {
             if (oldVersion < 2) await _migrateVersionOneToTwo(db);
             if (oldVersion < 3) await _migrateVersionTwoToThree(db);
             if (oldVersion < 4) await _migrateVersionThreeToFour(db);
+            if (oldVersion < 5) await _migrateVersionFourToFive(db);
           },
         ),
       );
@@ -185,6 +189,36 @@ class SqliteLocalDataStore implements LocalDataStore {
       'CREATE INDEX IF NOT EXISTS alarm_sounds_is_available ON alarm_sounds(is_available)',
     );
   }
+
+  static Future<void> _createVersionFive(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS alarm_lifecycle_events (
+        id TEXT PRIMARY KEY,
+        alarm_id TEXT NOT NULL,
+        schedule_id TEXT,
+        native_alarm_id INTEGER,
+        stage TEXT NOT NULL,
+        failure_category TEXT,
+        occurred_at INTEGER NOT NULL,
+        payload TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS lifecycle_alarm_id ON alarm_lifecycle_events(alarm_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS lifecycle_occurred_at ON alarm_lifecycle_events(occurred_at DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS lifecycle_stage ON alarm_lifecycle_events(stage)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS lifecycle_failure_category ON alarm_lifecycle_events(failure_category)',
+    );
+  }
+
+  static Future<void> _migrateVersionFourToFive(DatabaseExecutor db) =>
+      _createVersionFive(db);
 
   static Future<void> _migrateVersionThreeToFour(DatabaseExecutor db) async {
     await _createVersionFour(db);
@@ -344,6 +378,14 @@ class SqliteLocalDataStore implements LocalDataStore {
       );
       return rows.map((row) => row['payload'] as String).toList();
     }
+    if (collection == lifecycleCollection) {
+      final rows = await db.query(
+        lifecycleCollection,
+        columns: ['payload'],
+        orderBy: 'occurred_at DESC',
+      );
+      return rows.map((row) => row['payload'] as String).toList();
+    }
     final rows = await db.query(
       'records',
       columns: ['payload'],
@@ -405,7 +447,8 @@ class SqliteLocalDataStore implements LocalDataStore {
         collection == scheduleCollection ||
             collection == changeLogCollection ||
             collection == alarmCollection ||
-            collection == soundCollection
+            collection == soundCollection ||
+            collection == lifecycleCollection
         ? collection
         : 'records';
     final rows = await db.query(
@@ -610,6 +653,39 @@ class SqliteLocalDataStore implements LocalDataStore {
     }
   }
 
+  static Future<void> _writeLifecycle(
+    DatabaseExecutor db,
+    String id,
+    String payload,
+    Map<String, dynamic> map,
+  ) async {
+    final values = <String, Object?>{
+      'id': id,
+      'alarm_id': map['alarmId']?.toString() ?? 'unknown',
+      'schedule_id': map['scheduleId']?.toString(),
+      'native_alarm_id': map['nativeAlarmId'],
+      'stage': map['stage']?.toString() ?? 'diagnostic_failure',
+      'failure_category': map['failureCategory']?.toString(),
+      'occurred_at': map['occurredAt'] is int
+          ? map['occurredAt']
+          : DateTime.now().millisecondsSinceEpoch,
+      'payload': payload,
+    };
+    final updated = await db.update(
+      lifecycleCollection,
+      values,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (updated == 0) {
+      await db.insert(
+        lifecycleCollection,
+        values,
+        conflictAlgorithm: ConflictAlgorithm.abort,
+      );
+    }
+  }
+
   static Future<void> _write(
     DatabaseExecutor db,
     String collection,
@@ -620,7 +696,8 @@ class SqliteLocalDataStore implements LocalDataStore {
     if (collection == scheduleCollection ||
         collection == changeLogCollection ||
         collection == alarmCollection ||
-        collection == soundCollection) {
+        collection == soundCollection ||
+        collection == lifecycleCollection) {
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('record is not an object');
@@ -631,6 +708,8 @@ class SqliteLocalDataStore implements LocalDataStore {
         await _writeChangeLog(db, id, payload, decoded);
       } else if (collection == soundCollection) {
         await _writeSound(db, id, payload, decoded);
+      } else if (collection == lifecycleCollection) {
+        await _writeLifecycle(db, id, payload, decoded);
       } else {
         await _writeAlarm(db, id, payload, decoded, uniqueKey);
       }
@@ -687,7 +766,8 @@ class SqliteLocalDataStore implements LocalDataStore {
         collection == scheduleCollection ||
             collection == changeLogCollection ||
             collection == alarmCollection ||
-            collection == soundCollection
+            collection == soundCollection ||
+            collection == lifecycleCollection
         ? collection
         : 'records';
     await db.delete(
@@ -711,7 +791,8 @@ class SqliteLocalDataStore implements LocalDataStore {
         collection == scheduleCollection ||
             collection == changeLogCollection ||
             collection == alarmCollection ||
-            collection == soundCollection
+            collection == soundCollection ||
+            collection == lifecycleCollection
         ? collection
         : 'records';
     await _db.delete(

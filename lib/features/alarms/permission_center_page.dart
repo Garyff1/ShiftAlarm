@@ -1,14 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_mode_theme.dart';
+import '../../services/alarm/native_alarm_scheduler.dart';
 import '../../shared/widgets/async_states.dart';
 import 'alarm_controller.dart';
+import 'alarm_diagnostics_page.dart';
 import 'alarm_records_page.dart';
 
 class PermissionCenterPage extends StatelessWidget {
   const PermissionCenterPage({super.key, this.simpleMode = false});
 
   final bool simpleMode;
+
+  Future<void> _startTest(
+    BuildContext context,
+    AlarmController controller,
+    AlarmTestMode mode,
+  ) async {
+    final ok = await controller.startTestAlarm(
+      delaySeconds: mode.delaySeconds,
+      mode: mode,
+    );
+    if (!ok && context.mounted && !controller.permissions.exactAlarm) {
+      await _explainExact(context);
+    }
+  }
 
   Future<void> _explainExact(BuildContext context) async {
     final confirmed = await showDialog<bool>(
@@ -70,22 +86,17 @@ class PermissionCenterPage extends StatelessWidget {
     final remaining = controller.testRemainingSeconds;
     final simple = simpleMode;
     final overall = simple
-        ? !state.exactAlarm
-              ? '当前闹钟可能无法准时响'
-              : !state.notifications ||
-                    !state.fullScreenIntent ||
-                    state.volumeMuted ||
-                    !state.ignoringBatteryOptimizations
+        ? controller.hasHealthIssue
               ? '有一项需要处理'
               : '闹钟设置正常'
-        : controller.overallStatus;
+        : controller.healthHeadline;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('权限中心'),
+        title: const Text('闹钟健康中心'),
         actions: [
           IconButton(
-            tooltip: '刷新权限状态',
-            onPressed: controller.refreshPermissions,
+            tooltip: '一键检查',
+            onPressed: controller.runHealthCheck,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -122,11 +133,7 @@ class PermissionCenterPage extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        simple
-                            ? '按下面提示处理后，闹钟会自动重新设置。'
-                            : '系统权限可能随时被撤销，应用每次回到前台都会重新检查。',
-                      ),
+                      Text(controller.healthDescription),
                     ],
                   ),
                 ),
@@ -191,6 +198,114 @@ class PermissionCenterPage extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 14),
+          SectionCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                _HealthTile(
+                  icon: Icons.sync_rounded,
+                  title: '最近同步',
+                  value: controller.lastSyncAt == null
+                      ? '尚未完成同步'
+                      : controller.lastSyncResult?.successful == true
+                      ? '最近一次同步成功'
+                      : '最近一次同步需要处理',
+                  good: controller.lastSyncResult?.successful != false,
+                ),
+                const Divider(height: 1),
+                _HealthTile(
+                  icon: Icons.notifications_active_rounded,
+                  title: '最近一次响铃结果',
+                  value:
+                      controller.latestCompletedDiagnostic?.headline ??
+                      '还没有响铃结果',
+                  good:
+                      controller.latestCompletedDiagnostic?.state.name !=
+                      'failed',
+                ),
+                const Divider(height: 1),
+                _HealthTile(
+                  icon: Icons.music_note_rounded,
+                  title: '自定义铃声状态',
+                  value: controller.latestCustomSoundFailure == null
+                      ? '未检测到铃声不可用或降级'
+                      : '最近一次自定义铃声不可用，已降级到系统铃声',
+                  good: controller.latestCustomSoundFailure == null,
+                ),
+                const Divider(height: 1),
+                _HealthTile(
+                  icon: Icons.restart_alt_rounded,
+                  title: '最近一次重启恢复',
+                  value: controller.latestDirectBootEvent == null
+                      ? '暂无恢复记录'
+                      : '已记录 Direct Boot 恢复',
+                  good:
+                      controller.latestDirectBootEvent?.failureCategory == null,
+                ),
+                const Divider(height: 1),
+                _HealthTile(
+                  icon: Icons.public_rounded,
+                  title: '最近一次时间或时区重算',
+                  value: controller.latestTimezoneEvent == null
+                      ? '暂无变化记录'
+                      : controller.latestTimezoneEvent!.stage.label,
+                  good: controller.latestTimezoneEvent?.failureCategory == null,
+                ),
+                const Divider(height: 1),
+                _HealthTile(
+                  icon: Icons.pan_tool_alt_rounded,
+                  title: '强行停止检测',
+                  value: controller.latestForceStopEvent == null
+                      ? '本机未检测到强行停止记录'
+                      : controller.forceStopRecoveredThisLaunch
+                      ? '检测到后已恢复未来闹钟'
+                      : '曾检测到强行停止',
+                  good:
+                      controller.latestForceStopEvent == null ||
+                      controller.forceStopRecoveredThisLaunch,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: controller.isSyncing ? null : controller.runHealthCheck,
+            icon: controller.isSyncing
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.health_and_safety_rounded),
+            label: Text(controller.isSyncing ? '正在检查…' : '一键检查'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AlarmDiagnosticsPage(),
+              ),
+            ),
+            icon: const Icon(Icons.account_tree_rounded),
+            label: const Text('查看闹钟诊断'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: controller.isExportingDiagnostics
+                ? null
+                : () async {
+                    final ok = await controller.exportDiagnosticReport();
+                    if (context.mounted && !ok) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('诊断报告导出失败，请重试')),
+                      );
+                    }
+                  },
+            icon: const Icon(Icons.ios_share_rounded),
+            label: Text(
+              controller.isExportingDiagnostics ? '正在生成…' : '导出脱敏诊断报告',
+            ),
+          ),
           const SizedBox(height: 18),
           Text(
             '闹钟自检',
@@ -212,20 +327,25 @@ class PermissionCenterPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text('登记后可以锁屏或强制结束应用；测试记录不会混入正式排班统计。'),
+                Text(
+                  controller.activeTestMode?.instruction ??
+                      '每次只运行一种测试；测试记录不会混入正式排班统计。',
+                ),
                 const SizedBox(height: 14),
                 if (remaining == null)
-                  FilledButton.icon(
-                    onPressed: () async {
-                      final ok = await controller.startTestAlarm();
-                      if (!ok &&
-                          context.mounted &&
-                          !controller.permissions.exactAlarm) {
-                        await _explainExact(context);
-                      }
-                    },
-                    icon: const Icon(Icons.timer_outlined),
-                    label: const Text('一分钟后测试'),
+                  Column(
+                    children: AlarmTestMode.values
+                        .map(
+                          (mode) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _AlarmTestModeCard(
+                              mode: mode,
+                              onTap: () =>
+                                  _startTest(context, controller, mode),
+                            ),
+                          ),
+                        )
+                        .toList(),
                   )
                 else
                   OutlinedButton.icon(
@@ -244,10 +364,108 @@ class PermissionCenterPage extends StatelessWidget {
             icon: const Icon(Icons.history_rounded),
             label: const Text('查看闹钟记录'),
           ),
+          const SizedBox(height: 14),
+          SectionCard(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  color: Theme.of(context).colorScheme.tertiary,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    '不建议在手机系统设置中对 ShiftAlarm 使用“强行停止”，这可能让系统移除已安排的闹钟。普通划掉后台或系统回收进程不会被视为关闭闹钟。',
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+class _AlarmTestModeCard extends StatelessWidget {
+  const _AlarmTestModeCard({required this.mode, required this.onTap});
+
+  final AlarmTestMode mode;
+  final VoidCallback onTap;
+
+  IconData get icon => switch (mode) {
+    AlarmTestMode.standard => Icons.timer_outlined,
+    AlarmTestMode.lockScreen => Icons.screen_lock_portrait_outlined,
+    AlarmTestMode.background => Icons.layers_clear_outlined,
+    AlarmTestMode.reboot => Icons.restart_alt_rounded,
+  };
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: '${mode.label}，${mode.instruction}',
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Ink(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    mode == AlarmTestMode.standard ? '一分钟后测试' : mode.label,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(mode.instruction),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _HealthTile extends StatelessWidget {
+  const _HealthTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.good,
+  });
+  final IconData icon;
+  final String title;
+  final String value;
+  final bool good;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    leading: Icon(icon),
+    title: Text(title),
+    subtitle: Text(value),
+    trailing: Icon(
+      good ? Icons.check_circle_rounded : Icons.warning_amber_rounded,
+      color: good ? Colors.green.shade700 : Theme.of(context).colorScheme.error,
+      semanticLabel: good ? '正常' : '需要处理',
+    ),
+  );
 }
 
 class _PermissionTile extends StatelessWidget {

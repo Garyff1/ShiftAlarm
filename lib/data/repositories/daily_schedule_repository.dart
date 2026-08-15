@@ -36,6 +36,11 @@ abstract interface class DailyScheduleRepository
     DateTime date, {
     required Map<String, ShiftTemplate> templates,
   });
+  Future<void> restoreSnapshot(
+    DateTime date,
+    DailySchedule? snapshot, {
+    required Map<String, ShiftTemplate> templates,
+  });
   Future<void> deleteByDate(
     DateTime date, {
     Map<String, ShiftTemplate> templates = const {},
@@ -394,6 +399,52 @@ class LocalDailyScheduleRepository extends StoredRepository<DailySchedule>
     });
     await syncCoordinator.markPending([normalized]);
     return restored;
+  }
+
+  @override
+  Future<void> restoreSnapshot(
+    DateTime date,
+    DailySchedule? snapshot, {
+    required Map<String, ShiftTemplate> templates,
+  }) async {
+    final normalized = DailySchedule.normalizeDate(date);
+    await _runTransaction({collection, changeLogCollection}, (
+      transaction,
+    ) async {
+      final existing = _decodePayload(
+        await transaction.readByUniqueKey(
+          collection,
+          DailySchedule.dateKeyOf(normalized),
+        ),
+      );
+      if (existing != null) await transaction.delete(collection, existing.id);
+      if (snapshot != null) {
+        await _writeSchedule(
+          transaction,
+          snapshot.copyWith(
+            date: normalized,
+            alarmSyncStatus: AlarmSyncStatus.pending,
+            clearLastAlarmSyncAt: true,
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
+      await _writeLog(
+        transaction,
+        _log(
+          date: normalized,
+          oldShift: existing == null
+              ? null
+              : templates[existing.shiftTemplateId],
+          newShift: snapshot == null
+              ? null
+              : templates[snapshot.shiftTemplateId],
+          type: ScheduleChangeType.restore,
+          reason: '撤销上一次修改',
+        ),
+      );
+    });
+    await syncCoordinator.markPending([normalized]);
   }
 
   @override

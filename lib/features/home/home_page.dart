@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../app/app_navigation.dart';
@@ -51,8 +53,14 @@ class HomePage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           sliver: SliverList.list(
             children: [
+              if (alarms.forceStopRecoveryMessage != null) ...[
+                _ForceStopRecoveryCard(
+                  message: alarms.forceStopRecoveryMessage!,
+                ),
+                const SizedBox(height: 12),
+              ],
               _ScheduleOverviewCard(
-                eyebrow: '今天',
+                eyebrow: '今日工作状态',
                 date: now,
                 schedule: schedules.todaySchedule,
                 shift: schedules.shiftFor(schedules.todaySchedule),
@@ -189,6 +197,41 @@ class HomePage extends StatelessWidget {
   }
 }
 
+class _ForceStopRecoveryCard extends StatelessWidget {
+  const _ForceStopRecoveryCard({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: Theme.of(context).colorScheme.tertiaryContainer,
+    child: Padding(
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.restore_rounded, semanticLabel: '已恢复闹钟'),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '未来闹钟已重新检查',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(message),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _ScheduleOverviewCard extends StatefulWidget {
   const _ScheduleOverviewCard({
     required this.eyebrow,
@@ -215,6 +258,23 @@ class _ScheduleOverviewCard extends StatefulWidget {
 
 class _ScheduleOverviewCardState extends State<_ScheduleOverviewCard> {
   bool _expanded = false;
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.expandable) {
+      _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
 
   String _time(DateTime value) =>
       '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
@@ -244,6 +304,40 @@ class _ScheduleOverviewCardState extends State<_ScheduleOverviewCard> {
     final records = {
       for (final record in widget.alarmRecords) record.reminderRuleId: record,
     };
+    final submittedAlarmCount = widget.alarmRecords
+        .where((record) => record.status.isActive)
+        .length;
+    final timeline = <(DateTime, String)>[
+      for (final reminder in reminders) (reminder.value, reminder.key.name),
+    ];
+    if (shift?.arrivalTime != null) {
+      timeline.add((
+        DateTime(
+          widget.date.year,
+          widget.date.month,
+          widget.date.day + shift!.arrivalDayOffset,
+          shift.arrivalTime!.hour,
+          shift.arrivalTime!.minute,
+        ),
+        '到岗',
+      ));
+    }
+    timeline.sort((a, b) => a.$1.compareTo(b.$1));
+    final now = DateTime.now();
+    final nextSteps = timeline.where((item) => item.$1.isAfter(now));
+    final nextStep = nextSteps.firstOrNull;
+    final completedSteps = timeline.where((item) => !item.$1.isAfter(now));
+    final currentStep = schedule == null
+        ? '尚未排班'
+        : shift == null
+        ? '班次数据缺失'
+        : shift.type != ShiftType.work
+        ? shift.type.label
+        : completedSteps.isEmpty
+        ? '等待今天的第一个节点'
+        : nextStep == null
+        ? '今日安排已完成'
+        : '已完成：${completedSteps.last.$2}';
     final semantic =
         '${widget.eyebrow}，$title，$description，${FriendlyStatus.sync(schedule?.alarmSyncStatus ?? AlarmSyncStatus.notRequired)}';
     return Semantics(
@@ -314,6 +408,45 @@ class _ScheduleOverviewCardState extends State<_ScheduleOverviewCard> {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                      if (widget.expandable)
+                        Text(
+                          '$submittedAlarmCount 个闹钟已经设置',
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      if (widget.expandable) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '当前 · $currentStep',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (nextStep != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  '下一步 · ${_time(nextStep.$1)} ${nextStep.$2} · ${_remaining(nextStep.$1, now)}',
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                       if (schedule?.isTemporaryChanged == true)
                         Text(
                           '原排班：${widget.originalShift == null ? '数据缺失' : '${widget.originalShift!.code} · ${widget.originalShift!.name}'}',
@@ -364,6 +497,16 @@ class _ScheduleOverviewCardState extends State<_ScheduleOverviewCard> {
         ),
       ),
     );
+  }
+
+  String _remaining(DateTime target, DateTime now) {
+    final minutes = target.difference(now).inMinutes.clamp(0, 24 * 60 * 2);
+    if (minutes == 0) return '即将开始';
+    final hours = minutes ~/ 60;
+    final rest = minutes % 60;
+    if (hours == 0) return '还有 $rest 分钟';
+    if (rest == 0) return '还有 $hours 小时';
+    return '还有 $hours 小时 $rest 分钟';
   }
 }
 

@@ -47,5 +47,26 @@ class BootAndTimeChangeReceiver : BroadcastReceiver() {
             "recovered",
             reason = "$action:$restored",
         )
+        val stage = when (action) {
+            Intent.ACTION_TIMEZONE_CHANGED -> "timezone_recalculated"
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_DATE_CHANGED -> "time_recalculated"
+            else -> "direct_boot_restored"
+        }
+        val failure = if (restored == 0 && NativeAlarmStore.readSnapshots(context).isNotEmpty()) {
+            "direct_boot_restore_failure"
+        } else {
+            null
+        }
+        NativeAlarmStore.appendSystemLifecycleEvent(
+            context,
+            stage,
+            failure,
+            mapOf(
+                "action" to action.substringAfterLast('.'),
+                "restoredCount" to restored,
+                "exactAlarmPermission" to NativeAlarmScheduler.canScheduleExact(context),
+            ),
+        )
     }
 }

@@ -1,12 +1,15 @@
 import 'dart:async';
 import '../../data/models/alarm_record.dart';
+import '../../data/models/alarm_lifecycle_event.dart';
 import '../../data/models/app_enums.dart';
 import '../../data/models/app_settings.dart';
 import '../../data/models/daily_schedule.dart';
 import '../../data/repositories/alarm_record_repository.dart';
+import '../../data/repositories/alarm_lifecycle_repository.dart';
 import '../../data/repositories/alarm_sound_repository.dart';
 import '../../data/repositories/daily_schedule_repository.dart';
 import '../../data/repositories/shift_template_repository.dart';
+import '../../core/utils/id_generator.dart';
 import 'alarm_plan_builder.dart';
 import 'alarm_service.dart';
 import 'native_alarm_scheduler.dart';
@@ -36,6 +39,7 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
     required this.nativeScheduler,
     this.soundRepository,
     this.loadSettings,
+    this.lifecycleRepository,
     this.planBuilder = const AlarmPlanBuilder(),
     this.generationDays = 30,
   });
@@ -46,6 +50,7 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
   final NativeAlarmScheduler nativeScheduler;
   final AlarmSoundRepository? soundRepository;
   final Future<AppSettings> Function()? loadSettings;
+  final AlarmLifecycleRepository? lifecycleRepository;
   final AlarmPlanBuilder planBuilder;
   final int generationDays;
   Future<void>? _activeSync;
@@ -65,14 +70,22 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
     }
   }
 
-  Future<AlarmSyncResult> synchronizeAll({DateTime? now}) async {
+  Future<AlarmSyncResult> synchronizeAll({
+    DateTime? now,
+    bool forceReschedule = false,
+  }) async {
     final clock = now ?? DateTime.now();
     final schedules = await scheduleRepository.getFuture(
       from: clock,
       days: generationDays,
     );
     return _serialize(
-      () => _synchronize(schedules: schedules, scopeDates: null, now: clock),
+      () => _synchronize(
+        schedules: schedules,
+        scopeDates: null,
+        now: clock,
+        forceReschedule: forceReschedule,
+      ),
     );
   }
 
@@ -89,6 +102,7 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
         schedules: schedules,
         scopeDates: normalized,
         now: now ?? DateTime.now(),
+        forceReschedule: false,
       ),
     );
   }
@@ -113,6 +127,7 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
     required List<DailySchedule> schedules,
     required Set<DateTime>? scopeDates,
     required DateTime now,
+    required bool forceReschedule,
   }) async {
     final shifts = await shiftRepository.getAll();
     final sounds = await soundRepository?.getAll() ?? const [];
@@ -158,6 +173,16 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
           endReason: AlarmEndReason.replaced,
         ),
       );
+      await _appendLifecycle(
+        alarmId: stale.id,
+        scheduleId: stale.scheduleId,
+        nativeAlarmId: stale.nativeAlarmId,
+        stage: AlarmLifecycleStage.cancelled,
+        occurredAt: now,
+        plannedTriggerAt: stale.triggerAt,
+        failureCategory: AlarmFailureCategory.scheduleOutdated,
+        details: const {'reason': 'schedule_changed'},
+      );
       cancelled++;
     }
 
@@ -167,6 +192,19 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
       final old = existingByKey[plan.stableKey];
       final nativeId = old?.nativeAlarmId ?? nextId++;
       final candidate = _materialize(plan, old, nativeId, now);
+      await _appendLifecycle(
+        alarmId: candidate.id,
+        scheduleId: candidate.scheduleId,
+        nativeAlarmId: candidate.nativeAlarmId,
+        stage: AlarmLifecycleStage.planned,
+        occurredAt: now,
+        plannedTriggerAt: candidate.triggerAt,
+        details: {
+          'shiftCode': candidate.shiftCode,
+          'reminderName': candidate.reminderName,
+          'timezone': now.timeZoneName,
+        },
+      );
       final unchangedRegistration =
           old?.status == AlarmStatus.registered &&
           old?.triggerAt == candidate.triggerAt &&
@@ -176,7 +214,7 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
           old?.soundPath == candidate.soundPath &&
           old?.soundChecksum == candidate.soundChecksum &&
           old?.isVolumeFadeInEnabled == candidate.isVolumeFadeInEnabled;
-      if (unchangedRegistration && permissions.exactAlarm) {
+      if (unchangedRegistration && permissions.exactAlarm && !forceReschedule) {
         unchanged++;
         continue;
       }
@@ -191,6 +229,16 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
             failureReason: '精确闹钟权限未开启',
           ),
         );
+        await _appendLifecycle(
+          alarmId: candidate.id,
+          scheduleId: candidate.scheduleId,
+          nativeAlarmId: candidate.nativeAlarmId,
+          stage: AlarmLifecycleStage.diagnosticFailure,
+          occurredAt: now,
+          plannedTriggerAt: candidate.triggerAt,
+          failureCategory: AlarmFailureCategory.exactAlarmPermissionMissing,
+          details: const {'exactAlarmPermission': false},
+        );
         permissionBlocked++;
         continue;
       }
@@ -203,6 +251,26 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
             clearFailureReason: true,
           ),
         );
+        await _appendLifecycle(
+          alarmId: candidate.id,
+          scheduleId: candidate.scheduleId,
+          nativeAlarmId: candidate.nativeAlarmId,
+          stage: AlarmLifecycleStage.scheduled,
+          occurredAt: now,
+          plannedTriggerAt: candidate.triggerAt,
+          details: {
+            'scheduleApi':
+                result.scheduleApi ??
+                (candidate.isCoreAlarm
+                    ? 'setAlarmClock'
+                    : 'setExactAndAllowWhileIdle'),
+            'exactAlarmPermission': permissions.exactAlarm,
+            'timezone': now.timeZoneName,
+            'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
+            'systemTime': now.millisecondsSinceEpoch,
+            'forceReschedule': forceReschedule,
+          },
+        );
         registered++;
       } else {
         await alarmRepository.update(
@@ -210,6 +278,18 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
             status: AlarmStatus.failed,
             failureReason: result.error ?? '系统闹钟登记失败',
           ),
+        );
+        await _appendLifecycle(
+          alarmId: candidate.id,
+          scheduleId: candidate.scheduleId,
+          nativeAlarmId: candidate.nativeAlarmId,
+          stage: AlarmLifecycleStage.diagnosticFailure,
+          occurredAt: now,
+          plannedTriggerAt: candidate.triggerAt,
+          failureCategory: result.error == 'exact_alarm_permission_denied'
+              ? AlarmFailureCategory.exactAlarmPermissionMissing
+              : AlarmFailureCategory.unknown,
+          details: {'reason': result.error ?? 'native_schedule_failed'},
         );
         failed++;
       }
@@ -281,6 +361,16 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
   }
 
   Future<List<Map<String, Object?>>> reconcileNativeEvents() async {
+    final lifecycleValues = await nativeScheduler.consumeLifecycleEvents();
+    final lifecycleEvents = <AlarmLifecycleEvent>[];
+    for (final value in lifecycleValues) {
+      try {
+        lifecycleEvents.add(AlarmLifecycleEvent.fromMap(value));
+      } catch (_) {
+        // A malformed native diagnostic event must never block alarm recovery.
+      }
+    }
+    await lifecycleRepository?.appendAll(lifecycleEvents);
     final events = await nativeScheduler.consumeNativeEvents();
     final testEvents = <Map<String, Object?>>[];
     for (final event in events) {
@@ -317,5 +407,34 @@ class AlarmSyncCoordinator implements ScheduleAlarmSyncCoordinator {
     }
     await _refreshSnapshots();
     return testEvents;
+  }
+
+  Future<void> _appendLifecycle({
+    required String alarmId,
+    required AlarmLifecycleStage stage,
+    required DateTime occurredAt,
+    String? scheduleId,
+    int? nativeAlarmId,
+    DateTime? plannedTriggerAt,
+    AlarmFailureCategory? failureCategory,
+    bool isTest = false,
+    Map<String, Object?> details = const {},
+  }) async {
+    final repository = lifecycleRepository;
+    if (repository == null) return;
+    await repository.append(
+      AlarmLifecycleEvent(
+        id: IdGenerator.create('alarm_event'),
+        alarmId: alarmId,
+        scheduleId: scheduleId,
+        nativeAlarmId: nativeAlarmId,
+        stage: stage,
+        occurredAt: occurredAt,
+        plannedTriggerAt: plannedTriggerAt,
+        failureCategory: failureCategory,
+        isTest: isTest,
+        details: details,
+      ),
+    );
   }
 }

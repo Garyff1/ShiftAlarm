@@ -113,6 +113,25 @@ void main() {
     expect((await h.alarms.getAll()).single.nativeAlarmId, 10000);
   });
 
+  test('检测到 Force Stop 后绕过数据库幂等快路径并恢复系统闹钟', () async {
+    final h = AlarmHarness();
+    await h.seedWork();
+    await h.coordinator.synchronizeAll(now: h.now);
+    final originalId = (await h.alarms.getAll()).single.nativeAlarmId;
+
+    // Android 15 的 Force Stop 会移除 PendingIntent，但本地记录仍是 registered。
+    h.native.scheduled.clear();
+    final recovered = await h.coordinator.synchronizeAll(
+      now: h.now,
+      forceReschedule: true,
+    );
+
+    expect(recovered.registered, 1);
+    expect(recovered.unchanged, 0);
+    expect(h.native.scheduled.keys, [originalId]);
+    expect((await h.alarms.getAll()).single.nativeAlarmId, originalId);
+  });
+
   test('班次时间变化时替换原闹钟但沿用稳定原生 ID', () async {
     final h = AlarmHarness();
     final original = await h.seedWork();

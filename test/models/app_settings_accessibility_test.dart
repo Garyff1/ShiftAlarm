@@ -54,6 +54,22 @@ void main() {
       expect(restored.onboardingCompleted, isTrue);
     });
 
+    test('Beta003 记住排班视图并对旧设置安全回退月视图', () {
+      const original = AppSettings(scheduleViewMode: ScheduleViewMode.week);
+      expect(
+        AppSettings.fromMap(original.toMap()).scheduleViewMode,
+        ScheduleViewMode.week,
+      );
+      expect(
+        AppSettings.fromMap(const {}).scheduleViewMode,
+        ScheduleViewMode.month,
+      );
+      expect(
+        AppSettings.fromMap({'scheduleViewMode': 'unknown'}).scheduleViewMode,
+        ScheduleViewMode.month,
+      );
+    });
+
     test('copyWith 只修改适老化设置并保留闹钟默认值', () {
       const original = AppSettings(
         alarmGenerationDays: 21,

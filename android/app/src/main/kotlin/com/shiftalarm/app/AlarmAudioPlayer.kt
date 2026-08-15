@@ -16,6 +16,7 @@ import java.io.File
 class AlarmAudioPlayer(
     private val context: Context,
     private val onCustomFallback: (String) -> Unit,
+    private val onLifecycle: (String, String?, Map<String, Any?>) -> Unit,
 ) {
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
@@ -25,6 +26,7 @@ class AlarmAudioPlayer(
     private var fadeStartedAt = 0L
     private var fadeEnabled = false
     private var pausedForFocus = false
+    private var focusStatus = "not_requested"
 
     private val fadeStep = object : Runnable {
         override fun run() {
@@ -62,29 +64,68 @@ class AlarmAudioPlayer(
         }
     }
 
-    fun start(payload: AlarmPayload) {
+    fun start(payload: AlarmPayload): Boolean {
         release()
-        requestFocus()
+        focusStatus = requestFocus()
         fadeEnabled = payload.fadeIn
         val customRequested = payload.soundId != "system"
         if (customRequested) {
             val reason = runCatching {
                 val path = selectCustomPath(payload) ?: throw IllegalArgumentException("custom_sound_missing")
-                startPlayer(path = path, system = false, fadeIn = payload.fadeIn)
+                startPlayer(
+                    path = path,
+                    system = false,
+                    fadeIn = payload.fadeIn,
+                    soundType = "custom",
+                    fallback = false,
+                )
                 Log.i(TAG, "custom_started id=${payload.soundId} path=$path directBoot=${path == payload.directBootSoundPath}")
             }.exceptionOrNull()?.let(SoundFileManager::errorCode)
-            if (reason == null) return
+            if (reason == null) return true
             Log.w(TAG, "custom_fallback id=${payload.soundId} reason=$reason")
             onCustomFallback(reason)
+            onLifecycle(
+                "diagnostic_failure",
+                "custom_sound_unavailable",
+                mapOf("reason" to reason, "fallback" to "system"),
+            )
         }
         val systemFailure = runCatching {
-            startPlayer(path = null, system = true, fadeIn = payload.fadeIn)
+            startPlayer(
+                path = null,
+                system = true,
+                fadeIn = payload.fadeIn,
+                soundType = "system",
+                fallback = customRequested,
+            )
             Log.i(TAG, "system_started requested=${payload.soundId}")
         }.exceptionOrNull()
-        if (systemFailure != null) {
-            Log.w(TAG, "system_fallback_to_tone reason=${SoundFileManager.errorCode(systemFailure)}")
-            startToneFallback()
+        if (systemFailure == null) return true
+        val systemReason = SoundFileManager.errorCode(systemFailure)
+        Log.w(TAG, "system_fallback_to_tone reason=$systemReason")
+        val toneFailure = runCatching { startToneFallback() }.exceptionOrNull()
+        if (toneFailure == null) {
+            onLifecycle(
+                "audio_started",
+                null,
+                mapOf(
+                    "soundType" to "tone",
+                    "fallback" to true,
+                    "audioFocus" to focusStatus,
+                ),
+            )
+            return true
         }
+        onLifecycle(
+            "playback_failed",
+            "audio_playback_failure",
+            mapOf(
+                "systemReason" to systemReason,
+                "toneErrorType" to toneFailure.javaClass.simpleName,
+                "audioFocus" to focusStatus,
+            ),
+        )
+        return false
     }
 
     private fun selectCustomPath(payload: AlarmPayload): String? {
@@ -99,7 +140,13 @@ class AlarmAudioPlayer(
         return null
     }
 
-    private fun startPlayer(path: String?, system: Boolean, fadeIn: Boolean) {
+    private fun startPlayer(
+        path: String?,
+        system: Boolean,
+        fadeIn: Boolean,
+        soundType: String,
+        fallback: Boolean,
+    ) {
         val mediaPlayer = MediaPlayer().apply {
             setAudioAttributes(
                 AudioAttributes.Builder()
@@ -118,9 +165,27 @@ class AlarmAudioPlayer(
             }
             isLooping = true
             prepare()
+            onLifecycle(
+                "audio_prepared",
+                null,
+                mapOf(
+                    "soundType" to soundType,
+                    "fallback" to fallback,
+                    "audioFocus" to focusStatus,
+                ),
+            )
             val initial = if (fadeIn) 0.08f else 1f
             setVolume(initial, initial)
             start()
+            onLifecycle(
+                "audio_started",
+                null,
+                mapOf(
+                    "soundType" to soundType,
+                    "fallback" to fallback,
+                    "audioFocus" to focusStatus,
+                ),
+            )
         }
         player = mediaPlayer
         if (fadeIn) {
@@ -131,7 +196,10 @@ class AlarmAudioPlayer(
 
     private fun startToneFallback() {
         tone = ToneGenerator(AudioManager.STREAM_ALARM, 100)
-        handler.post(repeatTone)
+        check(tone?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 58_000) == true) {
+            "tone_start_failed"
+        }
+        handler.postDelayed(repeatTone, 58_000)
     }
 
     fun isPlaying(): Boolean = player?.isPlaying == true || tone != null
@@ -149,8 +217,8 @@ class AlarmAudioPlayer(
         abandonFocus()
     }
 
-    private fun requestFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    private fun requestFocus(): String {
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
@@ -169,6 +237,11 @@ class AlarmAudioPlayer(
                 AudioManager.STREAM_ALARM,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
             )
+        }
+        return when (result) {
+            AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> "granted"
+            AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> "delayed"
+            else -> "failed"
         }
     }
 

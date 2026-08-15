@@ -71,6 +71,29 @@ void main() {
     expect((await repository.getByDate(date))?.shiftTemplateId, b1.id);
   });
 
+  test('撤销单次修改会精确恢复修改前快照', () async {
+    final date = DateTime(2026, 8, 10);
+    final before = await repository.setShift(date, a1);
+    await repository.setShift(date, b1, templates: templates);
+
+    await repository.restoreSnapshot(date, before, templates: templates);
+
+    final restored = await repository.getByDate(date);
+    expect(restored?.shiftTemplateId, a1.id);
+    expect(restored?.isTemporaryChanged, isFalse);
+    expect(restored?.alarmSyncStatus, AlarmSyncStatus.pending);
+    expect((await logs.getAll()).last.changeType, ScheduleChangeType.restore);
+  });
+
+  test('撤销首次排班会恢复到未排班状态', () async {
+    final date = DateTime(2026, 8, 10);
+    await repository.setShift(date, a1);
+
+    await repository.restoreSnapshot(date, null, templates: templates);
+
+    expect(await repository.getByDate(date), isNull);
+  });
+
   test('直接新增重复日期受到唯一键保护', () async {
     final now = DateTime(2026, 8, 1);
     final first = DailySchedule(

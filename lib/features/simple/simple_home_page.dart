@@ -107,6 +107,9 @@ class _SimpleHomePageState extends State<SimpleHomePage>
   }
 
   String? _warningFor(AlarmController alarms) {
+    if (alarms.forceStopRecoveryMessage != null) {
+      return alarms.forceStopRecoveryMessage;
+    }
     if (!alarms.permissions.exactAlarm) return '明天的闹钟可能无法准时响，需要允许闹钟准时响。';
     if (!alarms.permissions.notifications) return '闹钟画面可能无法正常显示，需要允许显示闹钟提醒。';
     if (!alarms.permissions.fullScreenIntent) {
