@@ -99,7 +99,7 @@ APK 由 `.gitignore` 排除，不提交进 Git 历史。Beta003 标签与 GitHub
 
 ## 10. GitHub PR
 
-Draft PR：推送当前分支后补充地址。PR 在真机发布验收前保持 Draft，不合并、不打 Beta003 标签。
+Draft PR：<https://github.com/Garyff1/ShiftAlarm/pull/2>。目标分支为 `feature/beta002-accessibility-ui`；PR 在真机发布验收前保持 Draft，不合并、不打 Beta003 标签。
 
 ## 11. 已知问题
 
